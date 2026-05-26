@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
 
-class JointInvModel(nn.Module):
+class JointInvModel(nn.Module): # 联合逆动态模型
     def __init__(self, n_agents, observation_dim, hidden_dim, output_dim):
         super(JointInvModel, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(n_agents * (2 * observation_dim), hidden_dim),
+            nn.Linear(n_agents * (2 * observation_dim), hidden_dim), # 相邻智能体的观察拼接
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -15,7 +15,7 @@ class JointInvModel(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-class SharedInvModel(nn.Module):
+class SharedInvModel(nn.Module): # 共享逆动态模型
     def __init__(self, observation_dim, hidden_dim, output_dim):
         super(SharedInvModel, self).__init__()
         self.model = nn.Sequential(
@@ -29,7 +29,7 @@ class SharedInvModel(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-class IndependentInvModel(nn.Module):
+class IndependentInvModel(nn.Module): # 独立逆动态模型
     def __init__(self, n_agents, observation_dim, hidden_dim, output_dim, discrete_action=False):
         super(IndependentInvModel, self).__init__()
         self.models = nn.ModuleList([

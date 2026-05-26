@@ -5,10 +5,10 @@ import torch.nn.functional as F
 
 import diffuser.utils as utils
 
-class WeightedLoss(nn.Module):
+class WeightedLoss(nn.Module): # 处理动作状态的损失基类,用于对不同轨迹的损失进行加权
     def __init__(self, weights, action_dim):
         super().__init__()
-        self.register_buffer("weights", weights)
+        self.register_buffer("weights", weights) # 权重矩阵,用于对不同轨迹的损失进行加权
         self.action_dim = action_dim
 
     def forward(self, pred, targ):
@@ -21,15 +21,15 @@ class WeightedLoss(nn.Module):
         if self.action_dim > 0:
             a0_loss = (
                 loss[:, 0, : self.action_dim] / self.weights[0, : self.action_dim]
-            ).mean()
-            info = {"a0_loss": a0_loss}
+            ).mean() # 计算第一个时间步的损失,并除以权重矩阵的第一个元素
+            info = {"a0_loss": a0_loss} # 记录第一个时间步的损失,用于评估
         else:
             info = {}
         return loss * self.weights, info
         # return weighted_loss, {"a0_loss": a0_loss}
 
 
-class WeightedStateLoss(nn.Module):
+class WeightedStateLoss(nn.Module): # 带权重的状态损失基类,用于对状态预测进行加权
     def __init__(self, weights):
         super().__init__()
         self.register_buffer("weights", weights)
@@ -40,12 +40,12 @@ class WeightedStateLoss(nn.Module):
             [ batch_size x horizon x transition_dim ]
         """
         loss = self._loss(pred, targ)
-        weighted_loss = (loss * self.weights).mean()
+        weighted_loss = (loss * self.weights).mean() # 对损失进行加权,并取平均值
         return loss * self.weights, {"a0_loss": weighted_loss}
         # return weighted_loss, {"a0_loss": weighted_loss}
 
 
-class ValueLoss(nn.Module):
+class ValueLoss(nn.Module): # 价值函数损失基类,用于对奖励预测进行加权
     def __init__(self, *args):
         super().__init__()
         pass
@@ -60,7 +60,7 @@ class ValueLoss(nn.Module):
         else:
             corr = np.NaN
 
-        info = {
+        info = { # 记录奖励预测的统计信息,用于评估
             "mean_pred": pred.mean(),
             "mean_targ": targ.mean(),
             "min_pred": pred.min(),
@@ -73,27 +73,27 @@ class ValueLoss(nn.Module):
         return loss, info
 
 
-class WeightedL1(WeightedLoss):
+class WeightedL1(WeightedLoss): # 带权重的L1损失
     def _loss(self, pred, targ):
         return torch.abs(pred - targ)
 
 
-class WeightedL2(WeightedLoss):
+class WeightedL2(WeightedLoss): # 带权重的L2损失
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction="none")
 
 
-class WeightedStateL2(WeightedStateLoss):
+class WeightedStateL2(WeightedStateLoss): # 带权重的状态L2损失
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction="none")
 
 
-class ValueL1(ValueLoss):
+class ValueL1(ValueLoss): # L1奖励损失
     def _loss(self, pred, targ):
         return torch.abs(pred - targ)
 
 
-class ValueL2(ValueLoss):
+class ValueL2(ValueLoss): # L2奖励损失
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction="none")
 
@@ -107,9 +107,9 @@ Losses = {
 }
 
 
-def apply_conditioning(x, conditions):
-    cond_masks = conditions["masks"].to(bool)
-    x[cond_masks] = conditions["x"][cond_masks].clone()
+def apply_conditioning(x, conditions): # 应用条件,对输入进行进行条件化
+    cond_masks = conditions["masks"].to(bool) # 获取条件掩码,用于标识哪些位置需要应用条件
+    x[cond_masks] = conditions["x"][cond_masks].clone() # 对需要应用条件的位置,使用条件值进行替换
 
     if "player_idxs" in conditions.keys():
         if x.shape[-1] < 4:  # pure position information w.o. player info

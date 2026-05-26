@@ -1,9 +1,9 @@
 import torch
 
-from .GaussianDiffuison import GaussianDiffusion
+from .GaussianDiffusion import GaussianDiffusion
 from diffuser.models.nn_diffusion.basic import apply_conditioning
 
-class ValueDiffusion(GaussianDiffusion):
+class ValueDiffusion(GaussianDiffusion): # 值扩散模型
     def __init__(self, *args, clean_only=False, **kwargs):
         assert "value" in kwargs["loss_type"]
         super().__init__(*args, **kwargs)

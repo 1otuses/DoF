@@ -5,13 +5,14 @@ meta_data:
 
 variables:
   log_dir: [
-    ""
+    # "/home/lotus/data/vs_code_project/DoF/DoF_Trajectory/diffuser/logs/mad_mpe/simple_spread-expert/iclr_24-models.SharedIndependentTemporalUnet-r_700-guidew_1.2-ctde_True_linear/100"
+    "/home/lotus/data/vs_code_project/DoF/DoF_Trajectory/diffuser/logs/mad_smac/3m-Good/iclr_h_4-hh_20-models.SharedIndependentTemporalUnet-r_20/100"
   ]
 
 constants:
-  load_steps: [0, 10000, 20000, 30000, 100000, 200000, 300000, 400000, 500000]
-  num_eval: 10
-  num_envs: 10
+  load_steps: [10000] # 加载的step
+  num_eval: 1 # 评估的环境数量
+  num_envs: 1 # 环境数量
   evaluator: "utils.MADEvaluator"
   overwrite: True
   use_ddim_sample: False

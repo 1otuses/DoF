@@ -30,7 +30,7 @@ constants:
   n_consistency_models_steps: 5
 
   # model
-  model: "models.TemporalUnet"
+  model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
   diffusion: "models.GaussianDiffusion"
   share_inv: True
   n_diffusion_steps: 200

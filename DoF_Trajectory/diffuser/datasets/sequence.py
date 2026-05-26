@@ -10,7 +10,7 @@ from diffuser.datasets.preprocessing import get_preprocess_fn
 from diffuser.utils.mask_generator import MultiAgentMaskGenerator
 
 
-class SequenceDataset(torch.utils.data.Dataset):
+class SequenceDataset(torch.utils.data.Dataset): # 序列数据集，提供多智能体轨迹数据的加载、预处理和索引功能
     def __init__(
         self,
         env_type: str = "d4rl",

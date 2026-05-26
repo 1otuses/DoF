@@ -191,9 +191,7 @@ class LimitsNormalizer(Normalizer):
         x : [ -1, 1 ]
         """
         if x.max() > 1 + eps or x.min() < -1 - eps:
-
             x = np.clip(x, -1, 1)
-
 
         x = (x + 1) / 2.0
 
@@ -275,6 +273,7 @@ class CDFNormalizer1d:
 
             self.xmin, self.xmax = quantiles.min(), quantiles.max()
             self.ymin, self.ymax = cumprob.min(), cumprob.max()
+        self._warned = False  # 每个实例只打印一次 out-of-range 警告
 
     def __repr__(self):
         return f"[{np.round(self.xmin, 2):.4f}, {np.round(self.xmax, 2):.4f}"
@@ -301,13 +300,14 @@ class CDFNormalizer1d:
 
         x = (x + 1) / 2.0
 
-        if (x < self.ymin - eps).any() or (x > self.ymax + eps).any():
+        if not self._warned and ((x < self.ymin - eps).any() or (x > self.ymax + eps).any()):
             print(
                 f"""[ dataset/normalization ] Warning: out of range in unnormalize: """
                 f"""[{x.min()}, {x.max()}] | """
                 f"""x : [{self.xmin}, {self.xmax}] | """
                 f"""y: [{self.ymin}, {self.ymax}]"""
             )
+            self._warned = True
 
         x = np.clip(x, self.ymin, self.ymax)
 

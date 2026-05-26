@@ -1,4 +1,6 @@
 import argparse
+import glob
+import json
 import os
 
 import diffuser.utils as utils
@@ -8,6 +10,8 @@ from diffuser.utils.launcher_util import (
     build_config_from_dict,
     discover_latest_checkpoint_path,
 )
+from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 
 def main(Config, RUN):
@@ -29,6 +33,9 @@ def main(Config, RUN):
     Config.use_zero_padding = getattr(Config, "use_zero_padding", True)
     Config.use_inv_dyn = getattr(Config, "use_inv_dyn", True)
     Config.pred_future_padding = getattr(Config, "pred_future_padding", False)
+    Config.use_learnable_agent_weights = getattr(
+        Config, "use_learnable_agent_weights", False
+    )
     if not hasattr(Config, "agent_condition_type"):
         if Config.decentralized_execution:
             Config.agent_condition_type = "single"
@@ -40,7 +47,7 @@ def main(Config, RUN):
     # -----------------------------------------------------------------------------#
     dataset_config = utils.Config(
         Config.loader,
-        savepath="dataset_config.pkl",
+        savepath="dataset_config.pkl", # 保存数据集配置，虽然评估脚本可能不需要，但保持一致性
         env_type=Config.env_type,
         env=Config.dataset,
         n_agents=Config.n_agents,
@@ -73,13 +80,13 @@ def main(Config, RUN):
 
     render_config = utils.Config(
         Config.renderer,
-        savepath="render_config.pkl",
+        savepath="render_config.pkl", # 保存渲染器配置，虽然评估脚本可能不需要，但保持一致性
         env_type=Config.env_type,
         env=Config.dataset,
     )
     data_encoder_config = utils.Config(
         getattr(Config, "data_encoder", "utils.IdentityEncoder"),
-        savepath="data_encoder_config.pkl",
+        savepath="data_encoder_config.pkl", # 保存数据编码器配置，虽然评估脚本可能不需要，但保持一致性
     )
 
     dataset = dataset_config()
@@ -93,7 +100,8 @@ def main(Config, RUN):
     # -----------------------------------------------------------------------------#
     model_config = utils.Config(
         Config.model,
-        savepath="model_config.pkl",
+        savepath="model_config.pkl", # 保存模型配置
+        n_agents=Config.n_agents,
         horizon=Config.horizon + Config.history_horizon,
         history_horizon=Config.history_horizon,
         transition_dim=observation_dim,
@@ -108,7 +116,7 @@ def main(Config, RUN):
 
     diffusion_config = utils.Config(
         Config.diffusion,
-        savepath="diffusion_config.pkl",
+        savepath="diffusion_config.pkl", # 保存扩散模型配置
         n_agents=Config.n_agents,
         horizon=Config.horizon,
         history_horizon=Config.history_horizon,
@@ -139,7 +147,7 @@ def main(Config, RUN):
 
     trainer_config = utils.Config(
         utils.Trainer,
-        savepath="trainer_config.pkl",
+        savepath="trainer_config.pkl", # 保存训练器配置
         train_batch_size=Config.batch_size,
         train_lr=Config.learning_rate,
         gradient_accumulate_every=Config.gradient_accumulate_every,
@@ -158,7 +166,7 @@ def main(Config, RUN):
 
     evaluator_config = utils.Config(
         Config.evaluator,
-        savepath="evaluator_config.pkl",
+        savepath="evaluator_config.pkl", # 保存评估器配置，评估脚本可能需要加载
         verbose=False,
     )
 
@@ -172,7 +180,7 @@ def main(Config, RUN):
 
     if Config.eval_freq > 0:
         evaluator = evaluator_config()
-        evaluator.init(log_dir=logger.prefix)
+        evaluator.init(log_dir=os.path.join(logger.root, logger.prefix))
         trainer.set_evaluator(evaluator)
 
     if Config.continue_training:
@@ -202,6 +210,63 @@ def main(Config, RUN):
     logger.print("✓")
 
     # -----------------------------------------------------------------------------#
+    # ----------------------------- tensorboard & tqdm ----------------------------#
+    # -----------------------------------------------------------------------------#
+
+    tb_writer = SummaryWriter(os.path.join(logger.root, logger.prefix, "tensorboard"))
+
+    # monkey-patch logger.log to also write to TensorBoard
+    _original_log = logger.log
+
+    def _log_with_tb(**kwargs):
+        """将 loss 和 infos 写入 TensorBoard，然后转发给 ml_logger。"""
+        step = kwargs.get("step")
+        loss = kwargs.get("loss")
+        if step is not None:
+            if loss is not None:
+                tb_writer.add_scalar("loss/total", loss, step)
+            for k, v in kwargs.items():
+                if k in ("step", "loss", "flush"):
+                    continue
+                if isinstance(v, (int, float)):
+                    tb_writer.add_scalar(f"loss/{k}", v, step)
+        _original_log(**kwargs)
+
+    logger.log = _log_with_tb
+
+    # wrap trainer.dataloader to update a per-step tqdm progress bar
+    _original_train = trainer.train
+
+    def _train_with_pbar(self, n_train_steps):
+        total_batches = n_train_steps * self.gradient_accumulate_every
+        pbar = tqdm(
+            total=total_batches, desc="Training steps",
+            position=0, leave=True, dynamic_ncols=True,
+        )
+
+        original_dl = self.dataloader
+
+        class _TrackingDL:
+            def __init__(self, inner):
+                self._inner = inner
+            def __next__(self):
+                pbar.update(1)
+                return next(self._inner)
+            def __iter__(self):
+                return self
+
+        self.dataloader = _TrackingDL(original_dl)
+        try:
+            # _original_train is bound to trainer already
+            _original_train(n_train_steps)
+        finally:
+            self.dataloader = original_dl
+            pbar.close()
+
+    import types
+    trainer.train = types.MethodType(_train_with_pbar, trainer)
+
+    # -----------------------------------------------------------------------------#
     # --------------------------------- main loop ---------------------------------#
     # -----------------------------------------------------------------------------#
 
@@ -209,8 +274,40 @@ def main(Config, RUN):
 
     for i in range(n_epochs):
         logger.print(f"Epoch {i} / {n_epochs} | {logger.prefix}")
+        # 内部已经有 tqdm，不需要再包一层
         trainer.train(n_train_steps=Config.n_steps_per_epoch)
+
     trainer.finish_training()
+
+    # -----------------------------------------------------------------------------#
+    # ----------------------------- log eval results to TB ------------------------#
+    # -----------------------------------------------------------------------------#
+
+    results_dir = os.path.join(trainer.bucket, logger.prefix, "results")
+    if os.path.isdir(results_dir):
+        for fname in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
+            try:
+                with open(fname) as f:
+                    data = json.load(f)
+                step_marker = fname.split("step_")[-1].split("-")[0]
+                load_step = int(step_marker)
+                for k in ("average_ep_reward", "std_ep_reward", "win_rate"):
+                    if k not in data:
+                        continue
+                    val = data[k]
+                    if isinstance(val, (list, tuple)):
+                        for ai, v in enumerate(val):
+                            tb_writer.add_scalar(f"eval/{k}/agent_{ai}", v, load_step)
+                        tb_writer.add_scalar(
+                            f"eval/{k}/mean", np.mean(val), load_step
+                        )
+                    elif isinstance(val, (int, float, np.integer, np.floating)):
+                        tb_writer.add_scalar(f"eval/{k}", float(val), load_step)
+            except (json.JSONDecodeError, ValueError, OSError):
+                pass
+
+    tb_writer.close()
+    logger.log = _original_log
 
 
 if __name__ == "__main__":
@@ -237,10 +334,14 @@ if __name__ == "__main__":
         job_name=job_name + f"/{Config.seed}",
     )
 
-    logger.configure(RUN.prefix, root=RUN.script_root)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    log_root = os.path.join(project_root, "diffuser")
+    os.makedirs(log_root, exist_ok=True)
+    logger.configure(RUN.prefix, root=log_root)
     # logger.remove('*.pkl')
     logger.remove("traceback.err")
-    logger.remove("parameters.pkl")
+    # logger.remove("parameters.pkl")  # keep for evaluator
     logger.log_params(Config=vars(Config), RUN=vars(RUN))
     logger.log_text(
         """

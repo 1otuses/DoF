@@ -1,2 +1,2 @@
-from .GaussianDiffuison import GaussianDiffusion
+from .GaussianDiffusion import GaussianDiffusion
 from .ValueDiffusion import ValueDiffusion

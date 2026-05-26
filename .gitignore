@@ -155,3 +155,4 @@ wandb/
 __MACOSX/
 diffuser/datasets/data
 logs/
+*.pyc

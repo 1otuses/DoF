@@ -4,22 +4,40 @@ import numpy as np
 import tensorflow as tf
 from pathlib import Path
 from tqdm import tqdm
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
 
 from og_marl.environments import smac, mamujoco
-from og_marl.environments import simple_adversary, simple_spread
+from og_marl.environments import simple_spread, simple_adversary
 
 
-def main(env_name: str, map_name: str, quality: str):
+def detect_compression_type(file_path: str) -> str:
+    with open(file_path, "rb") as file_handle:
+        magic = file_handle.read(2)
+    if magic == b"\x1f\x8b":
+        return "GZIP"
+    if magic in (b"\x78\x01", b"\x78\x9c", b"\x78\xda"):
+        return "ZLIB"
+    return ""
+
+
+def main(env_name: str, map_name: str, quality: str, compression: str):
+    # 将tfrecord数据转换为numpy格式数据
+    # 是否添加agent_id到obs
     add_agent_id_to_obs = True
-    dataset_dir = Path(f"diffuser/datasets/data/{env_name}/{map_name}/{quality}")
+    dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality
 
+    # 处理mpe环境的特殊数据格式
     if env_name == "mpe" :
         if map_name == "simple_adversary":
-            dataset_dir = Path(f"diffuser/datasets/data/{env_name}/{map_name}")
+            dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name
         elif map_name == "simple_spread":
-            dataset_dir = Path(f"tests/dataset/{map_name}")
+            dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name
 
     file_path = Path(dataset_dir)
+    # 为每个子目录分配一个索引
     sub_dir_to_idx = {}
     idx = 0
     for subdir in os.listdir(file_path):
@@ -28,9 +46,12 @@ def main(env_name: str, map_name: str, quality: str):
             idx += 1
 
     def get_fname_idx(file_name):
+        # 定义一个函数，根据文件名获取索引，用于排序
         # print(file_name)
+        # print("\n")
         # print(sub_dir_to_idx)
         if env_name == "smac":
+            # SMAC的数据格式是: .../{subdir}/log_{number}.tfrecord
             dir_idx = sub_dir_to_idx[file_name.split("/")[-2]] * 1000
             return dir_idx + int(file_name.split("log_")[-1].split(".")[0])
         elif env_name == "mamujoco":
@@ -42,9 +63,13 @@ def main(env_name: str, map_name: str, quality: str):
         else:
             raise ValueError(f"Unknown environment {env_name}")
 
+    # 读取所有tfrecord文件，并按照索引排序
     filenames = [str(file_name) for file_name in file_path.glob("**/*.tfrecord")]
     filenames = sorted(filenames, key=get_fname_idx)
+    if not filenames:
+        raise ValueError(f"No .tfrecord files found under: {file_path}")
 
+    # 初始化环境
     if env_name == "smac":
         env = smac.SMAC(map_name)
     elif env_name == "mamujoco":
@@ -57,33 +82,86 @@ def main(env_name: str, map_name: str, quality: str):
     
     else:
         raise ValueError(f"Unknown environment {env_name}")
-    agents = env.agents
+    agents = env.agents # 获取所有智能体
 
-    filename_dataset = tf.data.Dataset.from_tensor_slices(filenames)
-    raw_dataset = filename_dataset.flat_map(
-        lambda x: tf.data.TFRecordDataset(x, compression_type="GZIP").map(
-            env._decode_fn
+    compression_map = {
+        "gzip": "GZIP",
+        "zlib": "ZLIB",
+        "none": "",
+    }
+    compression = compression.lower()
+    if compression == "auto":
+        gzip_files, zlib_files, raw_files = [], [], []
+        for file_name in filenames:
+            file_compression = detect_compression_type(file_name)
+            if file_compression == "GZIP":
+                gzip_files.append(file_name)
+            elif file_compression == "ZLIB":
+                zlib_files.append(file_name)
+            else:
+                raw_files.append(file_name)
+
+        datasets = []
+        if gzip_files:
+            datasets.append(
+                tf.data.Dataset.from_tensor_slices(gzip_files).flat_map(
+                    lambda x: tf.data.TFRecordDataset(
+                        x, compression_type="GZIP"
+                    ).map(env._decode_fn)
+                )
+            )
+        if zlib_files:
+            datasets.append(
+                tf.data.Dataset.from_tensor_slices(zlib_files).flat_map(
+                    lambda x: tf.data.TFRecordDataset(
+                        x, compression_type="ZLIB"
+                    ).map(env._decode_fn)
+                )
+            )
+        if raw_files:
+            datasets.append(
+                tf.data.Dataset.from_tensor_slices(raw_files).flat_map(
+                    lambda x: tf.data.TFRecordDataset(x, compression_type="").map(
+                        env._decode_fn
+                    )
+                )
+            )
+        if not datasets:
+            raise ValueError(f"No readable tfrecord files found under: {file_path}")
+        raw_dataset = datasets[0]
+        for extra_dataset in datasets[1:]:
+            raw_dataset = raw_dataset.concatenate(extra_dataset)
+    else:
+        if compression not in compression_map:
+            raise ValueError(
+                "Unsupported compression. Use auto, gzip, zlib, or none."
+            )
+        filename_dataset = tf.data.Dataset.from_tensor_slices(filenames)
+        # 使用flat_map将每个文件的TFRecordDataset展平为一个整体的数据流
+        raw_dataset = filename_dataset.flat_map(
+            lambda x: tf.data.TFRecordDataset(
+                x, compression_type=compression_map[compression]
+            ).map(env._decode_fn)
         )
-    )
 
-    period = 10
+    period = 10 # 处理数据的时间步长
 
     # Split the dataset into multiple batches
-    batch_size = 2048
+    batch_size = 2048 # 每个batch的大小
     databatches = raw_dataset.batch(batch_size)
 
     (
-        all_observations,
-        all_actions,
-        all_rewards,
-        all_discounts,
-        all_logprobs,
+        all_observations, # 所有智能体的观察
+        all_actions, # 所有智能体的动作
+        all_rewards, # 所有智能体的奖励
+        all_discounts, # 所有智能体的折扣因子
+        all_logprobs, # 所有智能体的动作概率（如果有的话）
     ) = ([], [], [], [], [])
-    if env_name == "smac":
-        all_states, all_legals = [], []
-    all_path_lengths = []
+    if env_name == "smac": # SMAC环境需要处理状态和合法动作
+        all_states, all_legals = [], [] # 所有智能体的状态和合法动作
+    all_path_lengths = [] # 所有路径的长度
 
-    path_length = 0
+    path_length = 0 # 当前路径的长度，用于累计每个智能体的观察时间步长
     (
         path_observations,
         path_actions,
@@ -93,26 +171,26 @@ def main(env_name: str, map_name: str, quality: str):
     ) = ([], [], [], [], [])
     if env_name == "smac":
         path_states, path_legals = [], []
-    for databatch in tqdm(databatches):
-        extras = databatch.extras
-        batch_size = len(extras["zero_padding_mask"])
+    for databatch in tqdm(databatches): # 遍历每个batch的数据
+        extras = databatch.extras # 获取额外的信息
+        batch_size = len(extras["zero_padding_mask"]) # 获取当前batch的大小
         if env_name == "smac":
-            states = extras["s_t"]
+            states = extras["s_t"] # SMAC环境的状态信息
 
         observations, actions, rewards, discounts, logprobs = ([], [], [], [], [])
         if env_name == "smac":
             legals = []
-        for agent in agents:
+        for agent in agents: # 遍历每个智能体
             observations.append(databatch.observations[agent].observation.numpy())
             if env_name == "smac":
                 legals.append(databatch.observations[agent].legal_actions.numpy())
             actions.append(databatch.actions[agent].numpy())
             rewards.append(databatch.rewards[agent].numpy())
             discounts.append(databatch.discounts[agent].numpy())
-            if "logprobs" in extras:
+            if "logprobs" in extras: # 如果有动作概率
                 logprobs.append(extras["logprobs"][agent].numpy())
 
-        observations = np.stack(observations, axis=2)
+        observations = np.stack(observations, axis=2) # 合并所有智能体的观察
         if env_name == "smac":
             legals = np.stack(legals, axis=2)
         actions = np.stack(actions, axis=2)
@@ -197,45 +275,51 @@ def main(env_name: str, map_name: str, quality: str):
     """ Save Numpy Arrays """
     if env_name == "smac":
         np.save(
-            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/states.npy",
+            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "states.npy",
             all_states,
         )
         np.save(
-            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/legals.npy",
+            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "legals.npy",
             all_legals,
         )
     np.save(
-        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/obs.npy",
+        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "obs.npy",
         all_observations,
     )
     np.save(
-        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/actions.npy",
+        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "actions.npy",
         all_actions,
     )
     np.save(
-        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/rewards.npy",
+        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "rewards.npy",
         all_rewards,
     )
     np.save(
-        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/discounts.npy",
+        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "discounts.npy",
         all_discounts,
     )
     if "logprobs" in extras:
         np.save(
-            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/logprobs.npy",
+            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "logprobs.npy",
             all_logprobs,
         )
     np.save(
-        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/path_lengths.npy",
+        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "path_lengths.npy",
         all_path_lengths,
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_name", type=str, default="smac")
-    parser.add_argument("--map_name", type=str, default="3m")
-    parser.add_argument("--quality", type=str, default="Good")
+    parser.add_argument("--env_name", type=str, default="mpe")
+    parser.add_argument("--map_name", type=str, default="simple_spread")
+    parser.add_argument("--quality", type=str, default="medium")
+    parser.add_argument(
+        "--compression",
+        type=str,
+        default="auto",
+        choices=["auto", "gzip", "zlib", "none"],
+    )
     args = parser.parse_args()
 
-    main(args.env_name, args.map_name, args.quality)
+    main(args.env_name, args.map_name, args.quality, args.compression)

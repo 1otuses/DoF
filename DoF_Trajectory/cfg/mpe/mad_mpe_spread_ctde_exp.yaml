@@ -1,17 +1,17 @@
 meta_data:
   exp_name: "mad_mpe"
   script_path: "run_scripts/train.py"
-  num_workers: 2  # num of process to open
+  num_workers: 1  # num of process to open
   job_name: "{dataset}/iclr_{horizon}-{model}-r_{returns_scale}-guidew_{condition_guidance_w}-ctde_{decentralized_execution}_linear"
 
 variables:
   seed: [100, 200]
 
-  horizon: [24]
+  horizon: [24] # 环境的步长
 
-  returns_scale: [700]
+  returns_scale: [700] # 奖励的缩放因子
   dataset: ["simple_spread-expert"]
-  condition_guidance_w: [1.2]
+  condition_guidance_w: [1.2] # 条件指导的权重,用来引导模型生成符合条件的轨迹,通常大于1
 
 constants:
   # misc
@@ -30,19 +30,19 @@ constants:
   use_return_to_go: True
 
   # model
-  model: "models.TemporalUnet"
-  diffusion: "models.GaussianDiffusion"
+  model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  diffusion: "models.GaussianDiffusion" # 高斯扩散模型
   share_inv: True
-  history_horizon: 0
+  history_horizon: 0 # 观察历史的长度，0表示不观察历史
   n_diffusion_steps: 200
   action_weight: 10
   loss_weights: null
   loss_discount: 1
-  dim_mults: [1, 4, 8]
+  dim_mults: [1, 4, 8] # Unet每层的维度是基础维度的倍数
   returns_condition: True
   predict_epsilon: True
   calc_energy: False
-  dim: 128
+  dim: 128 
   hidden_dim: 256
   condition_dropout: 0.25
   condition_guidance_w: 1.2
@@ -63,23 +63,23 @@ constants:
 
   # training
   n_steps_per_epoch: 1000
-  n_train_steps: 100000
+  n_train_steps: 10000
   batch_size: 32
   learning_rate: 0.0002
   gradient_accumulate_every: 2
   ema_decay: 0.995
   log_freq: 1000
-  save_freq: 50000
-  sample_freq: 10000
+  save_freq: 5000
+  sample_freq: 1000
   n_saves: 5
-  save_parallel: False
+  save_parallel: False # 是否在保存模型时同时保存一个副本到另一个位置，便于评估脚本加载
   n_reference: 3
   save_checkpoints: True
 
   # eval
   evaluator: "utils.MADEvaluator"
   num_eval: 10
-  eval_freq: 100000
+  eval_freq: 10000
 
   # load checkpoint
   continue_training: True

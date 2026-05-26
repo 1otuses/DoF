@@ -12,7 +12,7 @@ from torch.distributions import Bernoulli
 from .modules import Conv1dBlock, Downsample1d, SinusoidalPosEmb, Upsample1d
 
 
-class Residual(nn.Module):
+class Residual(nn.Module): # 残差层
     def __init__(self, fn):
         super().__init__()
         self.fn = fn
@@ -21,18 +21,18 @@ class Residual(nn.Module):
         return self.fn(x, *args, **kwargs) + x
 
 
-class PreNorm(nn.Module):
+class PreNorm(nn.Module): # 预归一化层
     def __init__(self, dim, fn):
         super().__init__()
         self.fn = fn
-        self.norm = nn.InstanceNorm2d(dim, affine=True)
+        self.norm = nn.InstanceNorm2d(dim, affine=True) # 实例归一化层,在计算fn前对输入进行归一化
 
     def forward(self, x):
         x = self.norm(x)
         return self.fn(x)
 
 
-class TemporalLinearAttention(nn.Module):
+class TemporalLinearAttention(nn.Module): # 空间线性注意力层
     def __init__(self, dim, embed_dim: int, heads=4, dim_head=128, residual: bool = False,):
         super().__init__()
         self.heads = heads
@@ -71,7 +71,7 @@ class TemporalLinearAttention(nn.Module):
             out = y + self.gamma * out
         return out
 
-class TemporalSelfAttention(nn.Module):
+class TemporalSelfAttention(nn.Module): # 空间自注意力层
     def __init__(
         self,
         n_channels: int,
@@ -177,7 +177,7 @@ class TemporalMlpBlock(nn.Module):
 
 
 
-class ResidualTemporalBlock(nn.Module):
+class ResidualTemporalBlock(nn.Module): # 空间残差块
     def __init__(self, inp_channels, out_channels, embed_dim, kernel_size=5, mish=True):
         super().__init__()
 
@@ -221,7 +221,7 @@ class ResidualTemporalBlock(nn.Module):
 
 
 
-class TemporalUnet(nn.Module):
+class TemporalUnet(nn.Module): # 轨迹UNet模型
     agent_share_parameters = True
 
     def __init__(
@@ -427,7 +427,7 @@ class TemporalUnet(nn.Module):
         return x
 
 
-class TemporalValue(nn.Module):
+class TemporalValue(nn.Module): # 轨迹值函数模型,基于TemporalUnet模型
     agent_share_parameters = True
 
     def __init__(
@@ -521,4 +521,4 @@ class TemporalValue(nn.Module):
 
         x = x.view(len(x), -1)
         out = self.final_block(torch.cat([x, t], dim=-1))
-        return out
+        return out # [ batch x out_dim ] 最终输出为每个时间步的值函数估计,可以用于强化学习中的策略评估

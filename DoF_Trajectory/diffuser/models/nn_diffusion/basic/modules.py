@@ -23,7 +23,7 @@ class QMixNet(nn.Module):
         mixed_actions = torch.bmm(actions.view(batch_size, 1, -1), w).squeeze(1) + b
         return mixed_actions
 
-class SinusoidalPosEmb(nn.Module):
+class SinusoidalPosEmb(nn.Module): # 正弦位置编码层
     def __init__(self, dim):
         super().__init__()
         self.dim = dim

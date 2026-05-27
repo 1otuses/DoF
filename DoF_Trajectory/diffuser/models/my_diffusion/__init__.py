@@ -1,5 +1,3 @@
-from .state_encoder import StateDecompositionEncoder
-from .reward_critic import RewardCritic
 from .vae import (
     ObservationVAE,
     VAEEncoder,

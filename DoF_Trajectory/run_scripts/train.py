@@ -214,57 +214,7 @@ def main(Config, RUN):
     # -----------------------------------------------------------------------------#
 
     tb_writer = SummaryWriter(os.path.join(logger.root, logger.prefix, "tensorboard"))
-
-    # monkey-patch logger.log to also write to TensorBoard
     _original_log = logger.log
-
-    def _log_with_tb(**kwargs):
-        """将 loss 和 infos 写入 TensorBoard，然后转发给 ml_logger。"""
-        step = kwargs.get("step")
-        loss = kwargs.get("loss")
-        if step is not None:
-            if loss is not None:
-                tb_writer.add_scalar("loss/total", loss, step)
-            for k, v in kwargs.items():
-                if k in ("step", "loss", "flush"):
-                    continue
-                if isinstance(v, (int, float)):
-                    tb_writer.add_scalar(f"loss/{k}", v, step)
-        _original_log(**kwargs)
-
-    logger.log = _log_with_tb
-
-    # wrap trainer.dataloader to update a per-step tqdm progress bar
-    _original_train = trainer.train
-
-    def _train_with_pbar(self, n_train_steps):
-        total_batches = n_train_steps * self.gradient_accumulate_every
-        pbar = tqdm(
-            total=total_batches, desc="Training steps",
-            position=0, leave=True, dynamic_ncols=True,
-        )
-
-        original_dl = self.dataloader
-
-        class _TrackingDL:
-            def __init__(self, inner):
-                self._inner = inner
-            def __next__(self):
-                pbar.update(1)
-                return next(self._inner)
-            def __iter__(self):
-                return self
-
-        self.dataloader = _TrackingDL(original_dl)
-        try:
-            # _original_train is bound to trainer already
-            _original_train(n_train_steps)
-        finally:
-            self.dataloader = original_dl
-            pbar.close()
-
-    import types
-    trainer.train = types.MethodType(_train_with_pbar, trainer)
 
     # -----------------------------------------------------------------------------#
     # --------------------------------- main loop ---------------------------------#
@@ -274,8 +224,10 @@ def main(Config, RUN):
 
     for i in range(n_epochs):
         logger.print(f"Epoch {i} / {n_epochs} | {logger.prefix}")
-        # 内部已经有 tqdm，不需要再包一层
-        trainer.train(n_train_steps=Config.n_steps_per_epoch)
+        trainer.train(
+            n_train_steps=Config.n_steps_per_epoch,
+            tb_writer=tb_writer,
+        )
 
     trainer.finish_training()
 
@@ -295,11 +247,11 @@ def main(Config, RUN):
                     if k not in data:
                         continue
                     val = data[k]
-                    if isinstance(val, (list, tuple)):
+                    if isinstance(val, (list, tuple, np.ndarray)):
                         for ai, v in enumerate(val):
-                            tb_writer.add_scalar(f"eval/{k}/agent_{ai}", v, load_step)
+                            tb_writer.add_scalar(f"eval/{k}/agent_{ai}", float(v), load_step)
                         tb_writer.add_scalar(
-                            f"eval/{k}/mean", np.mean(val), load_step
+                            f"eval/{k}/mean", float(np.mean(val)), load_step
                         )
                     elif isinstance(val, (int, float, np.integer, np.floating)):
                         tb_writer.add_scalar(f"eval/{k}", float(val), load_step)

@@ -300,6 +300,9 @@ class CDFNormalizer1d:
 
         x = (x + 1) / 2.0
 
+        # clip before range check to avoid noisy warning
+        x = np.clip(x, self.ymin, self.ymax)
+
         if not self._warned and ((x < self.ymin - eps).any() or (x > self.ymax + eps).any()):
             print(
                 f"""[ dataset/normalization ] Warning: out of range in unnormalize: """
@@ -308,8 +311,6 @@ class CDFNormalizer1d:
                 f"""y: [{self.ymin}, {self.ymax}]"""
             )
             self._warned = True
-
-        x = np.clip(x, self.ymin, self.ymax)
 
         y = self.inv(x)
         return y

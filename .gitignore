@@ -152,9 +152,9 @@ wandb/
 *.pdf
 *.jpg
 *.json
-*.tfrecord
 __MACOSX/
 diffuser/datasets/data
 tests/datasets/
+*.tfrecord
 logs/
 *.pyc

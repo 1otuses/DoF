@@ -106,12 +106,13 @@ def _log_results_to_tb(writer, path):
         val = data[k]
         # val may be a per-agent list (e.g. [173.4, 173.4, 183.4])
         # TensorBoard add_scalar requires a scalar, so take mean across agents
-        if isinstance(val, (list, tuple)):
+        if isinstance(val, (list, tuple, np.ndarray)):
+            import numpy as np
             for i, v in enumerate(val):
-                writer.add_scalar(f"eval/{k}/agent_{i}", v, load_step)
-            writer.add_scalar(f"eval/{k}/mean", np.mean(val), load_step)
+                writer.add_scalar(f"eval/{k}/agent_{i}", float(v), load_step)
+            writer.add_scalar(f"eval/{k}/mean", float(np.mean(val)), load_step)
         elif isinstance(val, (int, float, np.integer, np.floating)):
-            writer.add_scalar(f"eval/{k}", val, load_step)
+            writer.add_scalar(f"eval/{k}", float(val), load_step)
 
 
 if __name__ == "__main__":

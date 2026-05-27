@@ -32,9 +32,9 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     # 处理mpe环境的特殊数据格式
     if env_name == "mpe" :
         if map_name == "simple_adversary":
-            dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name
+            dataset_dir = PROJECT_ROOT / "diffuser" / "tests" /"datasets" / env_name / map_name / quality
         elif map_name == "simple_spread":
-            dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name
+            dataset_dir = PROJECT_ROOT / "diffuser" / "tests" /"datasets" / env_name / map_name / quality
 
     file_path = Path(dataset_dir)
     # 为每个子目录分配一个索引

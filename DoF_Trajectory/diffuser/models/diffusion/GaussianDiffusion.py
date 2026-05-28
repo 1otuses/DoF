@@ -331,7 +331,7 @@ class GaussianDiffusion(nn.Module):
         progress = utils.Progress(len(timesteps)) if verbose else utils.Silent()
         for t in timesteps:
             
-            x = apply_conditioning(x, cond)
+            x = apply_conditioning(x, cond, self.action_dim)
             x = self.data_encoder(x)
 
             
@@ -348,7 +348,7 @@ class GaussianDiffusion(nn.Module):
                 diffusion.append(x)
 
         
-        x = apply_conditioning(x, cond)
+        x = apply_conditioning(x, cond, self.action_dim)
         x = self.data_encoder(x)
 
         progress.close()
@@ -373,7 +373,7 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.noise_scheduler.add_noise(x_start, noise, t)
-        x_noisy = apply_conditioning(x_noisy, cond)
+        x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
         per_epsilons = []
@@ -406,7 +406,7 @@ class GaussianDiffusion(nn.Module):
             epsilon = epsilon.view(batch_size, seq_len, n_agents, action_dim)
 
         if not self.predict_epsilon:
-            epsilon = apply_conditioning(epsilon, cond)
+            epsilon = apply_conditioning(epsilon, cond, self.action_dim)
             epsilon = self.data_encoder(epsilon)
 
         assert noise.shape == epsilon.shape
@@ -461,7 +461,7 @@ class GaussianDiffusion(nn.Module):
         x_t_minus_1 = (
             model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
         )
-        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond)
+        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond, self.action_dim)
         x_t_minus_1 = self.data_encoder(x_t_minus_1)
 
         

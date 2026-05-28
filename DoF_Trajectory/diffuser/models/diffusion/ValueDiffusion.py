@@ -41,7 +41,7 @@ class ValueDiffusion(GaussianDiffusion): # 值扩散模型
             
             
             x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-            x_noisy = apply_conditioning(x_noisy, cond)
+            x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
             x_noisy = self.data_encoder(x_noisy)
             pred = self.model(x_noisy, t)
 

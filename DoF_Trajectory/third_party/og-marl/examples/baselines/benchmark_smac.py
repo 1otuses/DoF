@@ -1,7 +1,7 @@
 """Example running offline Systems on SMAC"""
-from mava.utils.training_utils import set_growing_gpu_memory
+# from mava.utils.training_utils import set_growing_gpu_memory
 
-set_growing_gpu_memory()
+# set_growing_gpu_memory()
 
 import functools
 from datetime import datetime

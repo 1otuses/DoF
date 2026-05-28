@@ -27,14 +27,14 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     # 将tfrecord数据转换为numpy格式数据
     # 是否添加agent_id到obs
     add_agent_id_to_obs = True
-    dataset_dir = PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality
+    dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
 
     # 处理mpe环境的特殊数据格式
     if env_name == "mpe" :
         if map_name == "simple_adversary":
-            dataset_dir = PROJECT_ROOT / "diffuser" / "tests" /"datasets" / env_name / map_name / quality
+            dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
         elif map_name == "simple_spread":
-            dataset_dir = PROJECT_ROOT / "diffuser" / "tests" /"datasets" / env_name / map_name / quality
+            dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
 
     file_path = Path(dataset_dir)
     # 为每个子目录分配一个索引
@@ -147,7 +147,7 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     period = 10 # 处理数据的时间步长
 
     # Split the dataset into multiple batches
-    batch_size = 2048 # 每个batch的大小
+    batch_size = 1024 # 每个batch的大小
     databatches = raw_dataset.batch(batch_size)
 
     (
@@ -173,7 +173,11 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
         path_states, path_legals = [], []
     for databatch in tqdm(databatches): # 遍历每个batch的数据
         extras = databatch.extras # 获取额外的信息
-        batch_size = len(extras["zero_padding_mask"]) # 获取当前batch的大小
+        zero_padding_mask_batch = extras["zero_padding_mask"].numpy()
+        if zero_padding_mask_batch.ndim == 1:
+            # step-level records store one mask value per sample
+            zero_padding_mask_batch = zero_padding_mask_batch[:, None]
+        batch_size = zero_padding_mask_batch.shape[0] # 获取当前batch的大小
         if env_name == "smac":
             states = extras["s_t"] # SMAC环境的状态信息
 
@@ -190,17 +194,30 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
             if "logprobs" in extras: # 如果有动作概率
                 logprobs.append(extras["logprobs"][agent].numpy())
 
-        observations = np.stack(observations, axis=2) # 合并所有智能体的观察
-        if env_name == "smac":
-            legals = np.stack(legals, axis=2)
-        actions = np.stack(actions, axis=2)
-        rewards = np.stack(rewards, axis=-1)
-        discounts = np.stack(discounts, axis=-1)
+        if observations[0].ndim == 2:
+            # step-level data: [B, F] -> [B, 1, N, F]
+            observations = np.stack(observations, axis=1)[:, None, :, :]
+            if env_name == "smac":
+                legals = np.stack(legals, axis=1)[:, None, :, :]
+            actions = np.stack(actions, axis=1)[:, None, :, :]
+            rewards = np.stack(rewards, axis=1)[:, None, :]
+            discounts = np.stack(discounts, axis=1)[:, None, :]
+        else:
+            # sequence-level data: [B, T, F] -> [B, T, N, F]
+            observations = np.stack(observations, axis=2)
+            if env_name == "smac":
+                legals = np.stack(legals, axis=2)
+            actions = np.stack(actions, axis=2)
+            rewards = np.stack(rewards, axis=-1)
+            discounts = np.stack(discounts, axis=-1)
         if "logprobs" in extras:
-            logprobs = np.stack(logprobs, axis=2)
+            if logprobs[0].ndim == 2:
+                logprobs = np.stack(logprobs, axis=1)[:, None, :, :]
+            else:
+                logprobs = np.stack(logprobs, axis=2)
 
         for idx in range(batch_size):
-            zero_padding_mask = extras["zero_padding_mask"][idx][:period]
+            zero_padding_mask = zero_padding_mask_batch[idx][:period]
             path_length += np.sum(zero_padding_mask, dtype=int)
 
             if env_name == "smac":
@@ -275,36 +292,36 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     """ Save Numpy Arrays """
     if env_name == "smac":
         np.save(
-            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "states.npy",
+            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"states.npy",
             all_states,
         )
         np.save(
-            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "legals.npy",
+            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"legals.npy",
             all_legals,
         )
     np.save(
-        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "obs.npy",
+        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"obs.npy",
         all_observations,
     )
     np.save(
-        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "actions.npy",
+        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"actions.npy",
         all_actions,
     )
     np.save(
-        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "rewards.npy",
+        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"rewards.npy",
         all_rewards,
     )
     np.save(
-        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "discounts.npy",
+        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"discounts.npy",
         all_discounts,
     )
     if "logprobs" in extras:
         np.save(
-            PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "logprobs.npy",
+            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"logprobs.npy",
             all_logprobs,
         )
     np.save(
-        PROJECT_ROOT / "diffuser" / "datasets" / "data" / env_name / map_name / quality / "path_lengths.npy",
+        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"path_lengths.npy",
         all_path_lengths,
     )
 

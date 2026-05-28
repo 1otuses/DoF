@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from mava.utils.training_utils import set_growing_gpu_memory
+# from mava.utils.training_utils import set_growing_gpu_memory
 
 from og_marl.systems.td3.critics import StateAndActionCritic, StateAndJointActionCritic
 from og_marl.systems.td3.trainer import (
@@ -22,7 +22,7 @@ from og_marl.systems.td3.trainer import (
     TD3Trainer,
 )
 
-set_growing_gpu_memory()
+# set_growing_gpu_memory()
 
 import tensorflow as tf
 import functools, os

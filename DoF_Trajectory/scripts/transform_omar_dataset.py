@@ -106,7 +106,7 @@ def process_seed(
     for arr_list in (all_dones, all_next_observations, all_observations, all_rewards):
         assert arr_list[0].shape[0] == length
 
-    prefix = f"tests/datasets/{map_name}/{quality}/{seed_subdir}/"
+    prefix = f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/{seed_subdir}/"
     os.makedirs(prefix, exist_ok=True)
     output_file = prefix + f"{map_name}_"
 

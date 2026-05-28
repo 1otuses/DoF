@@ -376,17 +376,26 @@ class GaussianDiffusion(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
-        per_epsilons = []
-        for i, per_model in enumerate(self.agent_models):
-            per_epsilon = per_model(
-                x_noisy[:, :, i, : ],
+        if getattr(self.model, "agent_share_parameters", False):
+            epsilon = self.agent_models[0](
+                x_noisy,
                 t,
-                returns = returns[:, : , i],
-                env_timestep = env_ts,
-                attention_masks = attention_masks,
+                returns=returns,
+                env_timestep=env_ts,
+                attention_masks=attention_masks,
             )
-            per_epsilons.append(per_epsilon)
-        epsilon = torch.stack(per_epsilons, dim = 2) 
+        else:
+            per_epsilons = []
+            for i, per_model in enumerate(self.agent_models):
+                per_epsilon = per_model(
+                    x_noisy[:, :, i, :],
+                    t,
+                    returns=returns[:, :, i],
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                )
+                per_epsilons.append(per_epsilon)
+            epsilon = torch.stack(per_epsilons, dim=2)
 
 
         if self.use_learnable_agent_weights:

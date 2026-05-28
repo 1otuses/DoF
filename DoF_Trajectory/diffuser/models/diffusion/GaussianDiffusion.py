@@ -228,6 +228,54 @@ class GaussianDiffusion(nn.Module):
         attention_masks: Optional[torch.Tensor] = None,
         states: Optional[torch.Tensor] = None,
     ):
+        if getattr(self.model, "agent_share_parameters", False):
+            if self.returns_condition:
+                epsilon_cond = self.agent_models[0](
+                    x,
+                    t,
+                    returns=returns,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=False,
+                )
+
+                if self.use_learnable_agent_weights:
+                    weighted_epsilon_cond = (
+                        epsilon_cond * self.agent_weights.view(1, 1, -1, 1)
+                    )
+                    epsilon_cond = weighted_epsilon_cond / self.agent_weights.sum()
+
+                epsilon_uncond = self.agent_models[0](
+                    x,
+                    t,
+                    returns=returns,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=True,
+                )
+
+                if self.use_learnable_agent_weights:
+                    weighted_epsilon_uncond = (
+                        epsilon_uncond * self.agent_weights.view(1, 1, -1, 1)
+                    )
+                    epsilon_uncond = (
+                        weighted_epsilon_uncond / self.agent_weights.sum()
+                    )
+
+                epsilon = epsilon_uncond + self.condition_guidance_w * (
+                    epsilon_cond - epsilon_uncond
+                )
+            else:
+                epsilon = self.agent_models[0](
+                    x,
+                    t,
+                    returns=returns,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=False,
+                )
+            return epsilon
+
         if self.returns_condition:
             
             per_epsilons_con = []

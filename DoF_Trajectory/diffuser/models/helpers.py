@@ -283,16 +283,31 @@ def apply_conditioning(x, conditions, action_dim):
 
 class WeightedLoss(nn.Module):
 
-    def __init__(self):
+    def __init__(self, weights):
         super().__init__()
+        self.register_buffer("weights", weights)
 
-    def forward(self, pred, targ, weights=1.0):
+    def forward(self, pred, targ):
         '''
             pred, targ : tensor [ batch_size x action_dim ]
         '''
         loss = self._loss(pred, targ)
-        weighted_loss = (loss * weights).mean()
-        return weighted_loss
+        weighted_loss = loss * self.weights
+        info = {"a0_loss": weighted_loss.mean()}
+        return weighted_loss, info
+
+
+class WeightedStateLoss(nn.Module):
+
+    def __init__(self, weights):
+        super().__init__()
+        self.register_buffer("weights", weights)
+
+    def forward(self, pred, targ):
+        loss = self._loss(pred, targ)
+        weighted_loss = loss * self.weights
+        info = {"a0_loss": weighted_loss.mean()}
+        return weighted_loss, info
 
 class WeightedL1(WeightedLoss):
 
@@ -305,9 +320,16 @@ class WeightedL2(WeightedLoss):
         return F.mse_loss(pred, targ, reduction='none')
 
 
+class WeightedStateL2(WeightedStateLoss):
+
+    def _loss(self, pred, targ):
+        return F.mse_loss(pred, targ, reduction='none')
+
+
 Losses = {
     'l1': WeightedL1,
     'l2': WeightedL2,
+    'state_l2': WeightedStateL2,
 }
 
 

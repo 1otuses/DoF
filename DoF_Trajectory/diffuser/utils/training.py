@@ -137,7 +137,7 @@ class Trainer(object):
             return
         self.ema.update_model_average(self.ema_model, self.model)
 
-    def train(self, n_train_steps):
+    def train(self, n_train_steps, tb_writer=None):
         timer = Timer()
         for _ in range(n_train_steps):
             for i in range(self.gradient_accumulate_every):
@@ -170,6 +170,10 @@ class Trainer(object):
                 logger.log(
                     step=self.step, loss=loss.detach().item(), **metrics, flush=True
                 )
+                if tb_writer is not None:
+                    tb_writer.add_scalar("loss", loss.detach().item(), self.step)
+                    for key, value in metrics.items():
+                        tb_writer.add_scalar(key, value, self.step)
 
             if self.sample_freq and self.step == 0:
                 self.render_reference(self.n_reference)

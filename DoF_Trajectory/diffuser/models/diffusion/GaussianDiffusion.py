@@ -89,7 +89,6 @@ class GaussianDiffusion(nn.Module):
         self.use_learnable_agent_weights = use_learnable_agent_weights  
         self.use_qmix_combiner = use_qmix_combiner
         self.use_data_agent_weights = use_data_agent_weights
-        self.agent_models = nn.ModuleList([model for _ in range(n_agents)])
         if self.use_qmix_combiner:
             self.qmix_net = QMixNet(observation_dim, n_agents, action_dim)
 
@@ -228,62 +227,42 @@ class GaussianDiffusion(nn.Module):
         states: Optional[torch.Tensor] = None,
     ):
         if self.returns_condition:
-            
-            per_epsilons_con = []
-            for i, per_model in enumerate(self.agent_models):
-                per_epsilon = per_model(
-                        x[:,:,i,:],
-                        t,
-                        returns = returns[:,:,i],
-                        env_timestep = env_ts,
-                        attention_masks = attention_masks,
-                        use_dropout=False,
-                    )
-                per_epsilons_con.append(per_epsilon)
-            epsilon_cond = torch.stack(per_epsilons_con, dim=2)
+            epsilon_cond = self.model(
+                x, t,
+                returns=returns,
+                env_timestep=env_ts,
+                attention_masks=attention_masks,
+                use_dropout=False,
+            )
 
             if self.use_learnable_agent_weights:
-
                 weighted_epsilon_cond = epsilon_cond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_cond = weighted_epsilon_cond / self.agent_weights.sum()
-            
-            per_epsilons_uncon = []
-            for i, per_model in enumerate(self.agent_models):
-                    per_epsilon_un = per_model(
-                        x[:,:,i,:],
-                        t,
-                        returns = returns[:,:,i],
-                        env_timestep = env_ts,
-                        attention_masks = attention_masks,
-                        use_dropout=True,
-                    )
-                    per_epsilons_uncon.append(per_epsilon_un)
 
-            epsilon_uncond = torch.stack(per_epsilons_uncon, dim=2)
+            epsilon_uncond = self.model(
+                x, t,
+                returns=returns,
+                env_timestep=env_ts,
+                attention_masks=attention_masks,
+                use_dropout=True,
+            )
 
             if self.use_learnable_agent_weights:
-
                 weighted_epsilon_uncond = epsilon_uncond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_uncond = weighted_epsilon_uncond / self.agent_weights.sum()
 
             epsilon = epsilon_uncond + self.condition_guidance_w * (
-                            epsilon_cond - epsilon_uncond
-                        )
+                epsilon_cond - epsilon_uncond
+            )
 
         else:
-            per_epsilons = []
-            for i, per_model in enumerate(self.agent_models):
-                    per_epsilon = per_model(
-                        x[:,:,i,:],
-                        t,
-                        returns = returns[:,:,i],
-                        env_timestep = env_ts,
-                        attention_masks = attention_masks,
-                        use_dropout=False,
-                    )
-                    per_epsilons.append(per_epsilon)
-            epsilons = per_epsilons
-            epsilon =  torch.stack(epsilons, dim=2)   
+            epsilon = self.model(
+                x, t,
+                returns=returns,
+                env_timestep=env_ts,
+                attention_masks=attention_masks,
+                use_dropout=False,
+            )
 
         return epsilon
 
@@ -375,20 +354,15 @@ class GaussianDiffusion(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
-        print("=============================================")
-        print("DEBUG SHAPE OF X_NOISY:", x_noisy.shape)
-        per_epsilons = []
-        for i, per_model in enumerate(self.agent_models):
-            per_epsilon = per_model(
-                x_noisy[:, :, i, : ],
-                t,
-                returns = returns[:, : , i],
-                env_timestep = env_ts,
-                attention_masks = attention_masks,
-            )
-            per_epsilons.append(per_epsilon)
-        epsilon = torch.stack(per_epsilons, dim = 2) 
-
+        # print("=============================================")
+        # print("DEBUG SHAPE OF X_NOISY:", x_noisy.shape)
+        epsilon = self.model(
+            x_noisy,
+            t,
+            returns=returns,
+            env_timestep=env_ts,
+            attention_masks=attention_masks,
+        )
 
         if self.use_learnable_agent_weights:
             weighted_x_recon = epsilon * self.agent_weights.view(1, 1, -1, 1)

@@ -7,13 +7,13 @@ from tqdm import tqdm
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
+# sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
 
 from og_marl.environments import smac, mamujoco
 from og_marl.environments import simple_spread, simple_adversary
 
 
-def detect_compression_type(file_path: str) -> str:
+def detect_compression_type(file_path: str) -> str: # 检测文件压缩类型
     with open(file_path, "rb") as file_handle:
         magic = file_handle.read(2)
     if magic == b"\x1f\x8b":
@@ -147,7 +147,7 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     period = 10 # 处理数据的时间步长
 
     # Split the dataset into multiple batches
-    batch_size = 1024 # 每个batch的大小
+    batch_size = 2048 # 每个batch的大小
     databatches = raw_dataset.batch(batch_size)
 
     (
@@ -173,11 +173,7 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
         path_states, path_legals = [], []
     for databatch in tqdm(databatches): # 遍历每个batch的数据
         extras = databatch.extras # 获取额外的信息
-        zero_padding_mask_batch = extras["zero_padding_mask"].numpy()
-        if zero_padding_mask_batch.ndim == 1:
-            # step-level records store one mask value per sample
-            zero_padding_mask_batch = zero_padding_mask_batch[:, None]
-        batch_size = zero_padding_mask_batch.shape[0] # 获取当前batch的大小
+        batch_size = len(extras["zero_padding_mask"]) # 获取当前batch的大小
         if env_name == "smac":
             states = extras["s_t"] # SMAC环境的状态信息
 
@@ -194,30 +190,17 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
             if "logprobs" in extras: # 如果有动作概率
                 logprobs.append(extras["logprobs"][agent].numpy())
 
-        if observations[0].ndim == 2:
-            # step-level data: [B, F] -> [B, 1, N, F]
-            observations = np.stack(observations, axis=1)[:, None, :, :]
-            if env_name == "smac":
-                legals = np.stack(legals, axis=1)[:, None, :, :]
-            actions = np.stack(actions, axis=1)[:, None, :, :]
-            rewards = np.stack(rewards, axis=1)[:, None, :]
-            discounts = np.stack(discounts, axis=1)[:, None, :]
-        else:
-            # sequence-level data: [B, T, F] -> [B, T, N, F]
-            observations = np.stack(observations, axis=2)
-            if env_name == "smac":
-                legals = np.stack(legals, axis=2)
-            actions = np.stack(actions, axis=2)
-            rewards = np.stack(rewards, axis=-1)
-            discounts = np.stack(discounts, axis=-1)
+        observations = np.stack(observations, axis=2)
+        if env_name == "smac":
+            legals = np.stack(legals, axis=2)
+        actions = np.stack(actions, axis=2)
+        rewards = np.stack(rewards, axis=-1)
+        discounts = np.stack(discounts, axis=-1)
         if "logprobs" in extras:
-            if logprobs[0].ndim == 2:
-                logprobs = np.stack(logprobs, axis=1)[:, None, :, :]
-            else:
                 logprobs = np.stack(logprobs, axis=2)
 
         for idx in range(batch_size):
-            zero_padding_mask = zero_padding_mask_batch[idx][:period]
+            zero_padding_mask = extras["zero_padding_mask"][idx][:period]
             path_length += np.sum(zero_padding_mask, dtype=int)
 
             if env_name == "smac":

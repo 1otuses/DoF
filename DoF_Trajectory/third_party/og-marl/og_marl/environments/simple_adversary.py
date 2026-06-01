@@ -123,11 +123,8 @@ class SimpleAdversary(PettingZooBase):
         """
         action_specs = {}
         for agent in self._agents:
-            action_specs[agent] = specs.BoundedArray(
-                shape=(2,),
-                dtype="float32",
-                minimum=-1.0,
-                maximum=1.0,
+            action_specs[agent] = specs.DiscreteArray(
+                num_values=5, dtype="int64"
             )
         return action_specs
     

@@ -375,6 +375,7 @@ class GaussianDiffusion(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
+        print("=============================================")
         print("DEBUG SHAPE OF X_NOISY:", x_noisy.shape)
         per_epsilons = []
         for i, per_model in enumerate(self.agent_models):

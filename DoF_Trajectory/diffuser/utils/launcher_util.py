@@ -8,9 +8,10 @@ from params_proto.neo_proto import ParamsProto
 
 assert instr  
 RUN.project = "diffuser"
-RUN.script_root = os.path.abspath(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-)
+# RUN.script_root = os.path.abspath(
+#     os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+# )
+RUN.script_root = "/home/lotus/data/vs_code_project/DoF/DoF_Trajectory/src/madiff"
 RUN.prefix = "logs/{exp_name}/{job_name}"
 
 

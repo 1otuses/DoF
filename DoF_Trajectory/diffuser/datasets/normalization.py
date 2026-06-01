@@ -239,7 +239,7 @@ class CDFNormalizer(Normalizer):
     def wrap(self, fn_name, x):
         shape = x.shape
 
-        print(x.shape, self.dim)
+        # print(x.shape, self.dim)
 
         x = x.reshape(-1, shape[-1])
         out = np.zeros_like(x)

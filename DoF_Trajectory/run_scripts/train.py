@@ -2,7 +2,7 @@ import argparse
 import glob
 import json
 import os
-import time
+import numpy as np
 
 import numpy as np
 import diffuser.utils as utils

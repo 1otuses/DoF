@@ -461,7 +461,7 @@ class GaussianDiffusion(nn.Module):
         x_t_minus_1 = (
             model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
         )
-        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond)
+        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond, action_dim=self.action_dim)
         x_t_minus_1 = self.data_encoder(x_t_minus_1)
 
         

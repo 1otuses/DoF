@@ -4,7 +4,7 @@ from typing import Dict, List, Union
 from dm_env import specs
 import numpy as np
 from pettingzoo.mpe import  simple_adversary_v3
-from og_marl.environments.base import OLT
+from og_marl.environments.base import OLT, convert_space_to_spec
 from og_marl.environments.pettingzoo_base import PettingZooBase
 
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
@@ -24,7 +24,9 @@ class SimpleAdversary(PettingZooBase):
                 Format (env_preprocessor, dict_with_preprocessor_params).
             return_state_info: return extra state info
         """
-        self._environment = simple_adversary_v3.parallel_env(render_mode="rgb_array")
+        self._environment = simple_adversary_v3.parallel_env(
+            render_mode="rgb_array", continuous_actions=True
+        )
 
         self.num_actions = 5
         self.num_agents = 3
@@ -123,8 +125,8 @@ class SimpleAdversary(PettingZooBase):
         """
         action_specs = {}
         for agent in self._agents:
-            action_specs[agent] = specs.DiscreteArray(
-                num_values=5, dtype="int64"
+            action_specs[agent] = convert_space_to_spec(
+                self._environment.action_space(agent)
             )
         return action_specs
     

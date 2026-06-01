@@ -7,7 +7,7 @@ from tqdm import tqdm
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
+sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
 
 from og_marl.environments import smac, mamujoco
 from og_marl.environments import simple_spread, simple_adversary
@@ -23,7 +23,13 @@ def detect_compression_type(file_path: str) -> str: # 检测文件压缩类型
     return ""
 
 
-def main(env_name: str, map_name: str, quality: str, compression: str):
+def main(
+    env_name: str,
+    map_name: str,
+    quality: str,
+    compression: str,
+    max_episode_length_override: int = None,
+):
     # 将tfrecord数据转换为numpy格式数据
     # 是否添加agent_id到obs
     add_agent_id_to_obs = True
@@ -83,6 +89,12 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
     else:
         raise ValueError(f"Unknown environment {env_name}")
     agents = env.agents # 获取所有智能体
+    if max_episode_length_override is not None:
+        max_episode_length = max_episode_length_override
+    else:
+        max_episode_length = getattr(
+            env, "max_episode_length", getattr(env, "max_timestep", np.inf)
+        )
 
     compression_map = {
         "gzip": "GZIP",
@@ -173,7 +185,12 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
         path_states, path_legals = [], []
     for databatch in tqdm(databatches): # 遍历每个batch的数据
         extras = databatch.extras # 获取额外的信息
-        batch_size = len(extras["zero_padding_mask"]) # 获取当前batch的大小
+        zero_padding_mask_batch = extras["zero_padding_mask"].numpy()
+        if zero_padding_mask_batch.ndim == 0:
+            zero_padding_mask_batch = zero_padding_mask_batch[None, None]
+        elif zero_padding_mask_batch.ndim == 1:
+            zero_padding_mask_batch = zero_padding_mask_batch[:, None]
+        batch_size = zero_padding_mask_batch.shape[0] # 获取当前batch的大小
         if env_name == "smac":
             states = extras["s_t"] # SMAC环境的状态信息
 
@@ -190,17 +207,30 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
             if "logprobs" in extras: # 如果有动作概率
                 logprobs.append(extras["logprobs"][agent].numpy())
 
-        observations = np.stack(observations, axis=2)
-        if env_name == "smac":
-            legals = np.stack(legals, axis=2)
-        actions = np.stack(actions, axis=2)
-        rewards = np.stack(rewards, axis=-1)
-        discounts = np.stack(discounts, axis=-1)
+        if observations[0].ndim == 2:
+            # step-level data: [B, F] -> [B, 1, N, F]
+            observations = np.stack(observations, axis=1)[:, None, :, :]
+            if env_name == "smac":
+                legals = np.stack(legals, axis=1)[:, None, :, :]
+            actions = np.stack(actions, axis=1)[:, None, :, :]
+            rewards = np.stack(rewards, axis=1)[:, None, :]
+            discounts = np.stack(discounts, axis=1)[:, None, :]
+        else:
+            # sequence-level data: [B, T, F] -> [B, T, N, F]
+            observations = np.stack(observations, axis=2)
+            if env_name == "smac":
+                legals = np.stack(legals, axis=2)
+            actions = np.stack(actions, axis=2)
+            rewards = np.stack(rewards, axis=-1)
+            discounts = np.stack(discounts, axis=-1)
         if "logprobs" in extras:
+            if logprobs[0].ndim == 2:
+                logprobs = np.stack(logprobs, axis=1)[:, None, :, :]
+            else:
                 logprobs = np.stack(logprobs, axis=2)
 
         for idx in range(batch_size):
-            zero_padding_mask = extras["zero_padding_mask"][idx][:period]
+            zero_padding_mask = zero_padding_mask_batch[idx][:period]
             path_length += np.sum(zero_padding_mask, dtype=int)
 
             if env_name == "smac":
@@ -213,10 +243,9 @@ def main(env_name: str, map_name: str, quality: str, compression: str):
             if "logprobs" in extras:
                 path_logprobs.append(logprobs[idx, :period])
 
-            if (
-                int(path_discounts[-1][-1, 0]) == 0
-                or path_length >= env.max_episode_length
-            ):
+            # discount is float (e.g., 0.99); casting to int turns it into 0.
+            is_terminal = np.any(path_discounts[-1][-1] <= 1e-8)
+            if is_terminal or path_length >= max_episode_length:
                 path_observations = np.concatenate(path_observations, axis=0)
                 if add_agent_id_to_obs:
                     T, N = path_observations.shape[:2]
@@ -313,13 +342,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_name", type=str, default="mpe")
     parser.add_argument("--map_name", type=str, default="simple_spread")
-    parser.add_argument("--quality", type=str, default="medium")
+    parser.add_argument("--quality", type=str, default="expert")
     parser.add_argument(
         "--compression",
         type=str,
         default="auto",
         choices=["auto", "gzip", "zlib", "none"],
     )
+    parser.add_argument(
+        "--max_episode_length",
+        type=int,
+        default=None,
+        help="Optional fixed episode length for step-level datasets.",
+    )
     args = parser.parse_args()
 
-    main(args.env_name, args.map_name, args.quality, args.compression)
+    main(
+        args.env_name,
+        args.map_name,
+        args.quality,
+        args.compression,
+        max_episode_length_override=args.max_episode_length,
+    )

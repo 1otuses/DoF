@@ -19,7 +19,8 @@ import numpy as np
 
 DEFAULT_DATASETS = [
     Path("DoF_Trajectory/diffuser/datasets/data/mpe/simple_spread/expert"),
-    Path("DoF_Trajectory/diffuser/datasets/data/smac/3m/Good"),
+    # Path("DoF_Trajectory/diffuser/datasets/data/smac/3m/Good"),
+    # Path("DoF_Trajectory/diffuser/datasets/data/mpe/simple_spread"),
 ]
 
 

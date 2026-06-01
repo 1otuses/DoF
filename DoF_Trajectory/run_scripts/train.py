@@ -2,7 +2,6 @@ import argparse
 import glob
 import json
 import os
-import numpy as np
 
 import numpy as np
 import diffuser.utils as utils
@@ -217,27 +216,27 @@ def main(Config, RUN):
 
     tb_writer = SummaryWriter(os.path.join(logger.root, logger.prefix, "tensorboard"))
 
+    # 拦截 logger.log，将训练指标同时写入 TensorBoard
+    _original_log = logger.log
+    def _tb_log(step=None, loss=None, **metrics):
+        if step is not None:
+            if loss is not None:
+                tb_writer.add_scalar("loss", loss, step)
+            for key, value in metrics.items():
+                if isinstance(value, (int, float, np.integer, np.floating)):
+                    tb_writer.add_scalar(f"loss/{key}", float(value), step)
+        _original_log(step=step, loss=loss, **metrics)
+    logger.log = _tb_log
+
     # -----------------------------------------------------------------------------#
     # --------------------------------- main loop ---------------------------------#
     # -----------------------------------------------------------------------------#
 
-    n_epochs = int((Config.n_train_steps - trainer.step) // Config.n_steps_per_epoch)
-
-    pbar_epoch = tqdm(range(n_epochs), desc="Epoch", position=0)
-    for i in pbar_epoch:
-        logger.print(f"Epoch {i} / {n_epochs} | {logger.prefix}")
-        steps_in_epoch = Config.n_steps_per_epoch
-        # step 级进度条
-        pbar_step = tqdm(
-            range(steps_in_epoch),
-            desc=f"Step",
-            position=1,
-            leave=False,
-        )
-        for _ in pbar_step:
-            trainer.train(n_train_steps=1, tb_writer=tb_writer)
-            pbar_step.set_postfix(step=trainer.step)
-        pbar_step.close()
+    steps_remaining = Config.n_train_steps - trainer.step
+    with tqdm(total=steps_remaining, desc="Training", initial=trainer.step) as pbar:
+        for _ in range(steps_remaining):
+            trainer.train(n_train_steps=1)
+            pbar.update(1)
 
     trainer.finish_training()
 
@@ -269,6 +268,7 @@ def main(Config, RUN):
                 pass
 
     tb_writer.close()
+    logger.log = _original_log
 
 
 if __name__ == "__main__":

@@ -10,9 +10,9 @@ variables:
   ]
 
 constants:
-  load_steps: [10000] # 加载的step
-  num_eval: 1 # 评估的环境数量
-  num_envs: 1 # 环境数量
+  load_steps: [0,10000, 30000, 50000,100000] # 加载的step
+  num_eval: 5 # 评估的环境数量
+  num_envs: 5 # 环境评估重复次数
   evaluator: "utils.MADEvaluator"
   overwrite: True
   use_ddim_sample: False

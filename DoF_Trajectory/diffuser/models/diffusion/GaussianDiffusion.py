@@ -3,9 +3,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler # DDPM调度器
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler # DDIM调度器
-from diffusers.schedulers.scheduling_consistency_models import CMStochasticIterativeScheduler # CMStochasticIterativeScheduler调度器
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+from diffusers.schedulers.scheduling_consistency_models import CMStochasticIterativeScheduler
 
 
 import diffuser.utils as utils
@@ -18,8 +18,8 @@ class QMixNet(nn.Module):
         self.n_agents = n_agents
         self.action_dim = action_dim
         
-        self.hyper_w = nn.Linear(state_dim, n_agents * action_dim) # 生成每个智能体的权重
-        self.hyper_b = nn.Linear(state_dim, action_dim) # 生成每个智能体的偏置
+        self.hyper_w = nn.Linear(state_dim, n_agents * action_dim)
+        self.hyper_b = nn.Linear(state_dim, action_dim)
 
     def forward(self, actions, states):
         batch_size = actions.shape[0]
@@ -34,11 +34,11 @@ class GaussianDiffusion(nn.Module):
         self,
         model,
         n_agents: int,
-        horizon: int, # 预测步长
-        history_horizon: int, # 历史步长
+        horizon: int,
+        history_horizon: int,
         observation_dim: int,
         action_dim: int,
-        use_inv_dyn: bool = True, # 是否使用逆动力学
+        use_inv_dyn: bool = True,
         discrete_action: bool = False,
         num_actions: int = 0,  
         n_timesteps: int = 1000,
@@ -59,9 +59,9 @@ class GaussianDiffusion(nn.Module):
         share_inv: bool = True,
         joint_inv: bool = False,
         data_encoder: utils.Encoder = utils.IdentityEncoder(),
-        use_learnable_agent_weights=False,  # 是否使用可学习智能体权重
-        use_qmix_combiner=False,  # 是否使用QMix网络
-        use_data_agent_weights=False, # 是否使用数据智能体权重
+        use_learnable_agent_weights=False,  
+        use_qmix_combiner=False,  
+        use_data_agent_weights=False,
         **kwargs,
     ):
         assert action_dim > 0
@@ -119,7 +119,7 @@ class GaussianDiffusion(nn.Module):
         self.clip_denoised = clip_denoised
         self.predict_epsilon = predict_epsilon
 
-        self.noise_scheduler = DDPMScheduler( # 噪声调度器
+        self.noise_scheduler = DDPMScheduler(
             num_train_timesteps=self.n_timesteps,
             clip_sample=True,
             prediction_type="epsilon",
@@ -172,7 +172,7 @@ class GaussianDiffusion(nn.Module):
         return inv_model
     
     def set_ddim_scheduler(self, n_ddim_steps: int = 15):
-        self.ddim_noise_scheduler = DDIMScheduler( # DDIM噪声调度器
+        self.ddim_noise_scheduler = DDIMScheduler(
             num_train_timesteps=self.n_timesteps,
             clip_sample=True,
             prediction_type="epsilon",
@@ -182,7 +182,7 @@ class GaussianDiffusion(nn.Module):
         self.use_ddim_sample = True
     
     def set_consistency_models_scheduler(self, n_consistency_model_steps: int = 15):
-        self.consistency_models_scheduler = CMStochasticIterativeScheduler( # 一致性模型噪声调度器
+        self.consistency_models_scheduler = CMStochasticIterativeScheduler(
             num_train_timesteps = self.n_timesteps,
             sigma_min = 0.002,
             sigma_max = 80,
@@ -198,7 +198,6 @@ class GaussianDiffusion(nn.Module):
         discount   : float
             multiplies t^th timestep of trajectory loss by discount**t
         """
-        # 计算损失权重
 
         if self.use_inv_dyn:
             dim_weights = torch.ones(self.observation_dim, dtype=torch.float32)
@@ -228,54 +227,6 @@ class GaussianDiffusion(nn.Module):
         attention_masks: Optional[torch.Tensor] = None,
         states: Optional[torch.Tensor] = None,
     ):
-        if getattr(self.model, "agent_share_parameters", False):
-            if self.returns_condition:
-                epsilon_cond = self.agent_models[0](
-                    x,
-                    t,
-                    returns=returns,
-                    env_timestep=env_ts,
-                    attention_masks=attention_masks,
-                    use_dropout=False,
-                )
-
-                if self.use_learnable_agent_weights:
-                    weighted_epsilon_cond = (
-                        epsilon_cond * self.agent_weights.view(1, 1, -1, 1)
-                    )
-                    epsilon_cond = weighted_epsilon_cond / self.agent_weights.sum()
-
-                epsilon_uncond = self.agent_models[0](
-                    x,
-                    t,
-                    returns=returns,
-                    env_timestep=env_ts,
-                    attention_masks=attention_masks,
-                    use_dropout=True,
-                )
-
-                if self.use_learnable_agent_weights:
-                    weighted_epsilon_uncond = (
-                        epsilon_uncond * self.agent_weights.view(1, 1, -1, 1)
-                    )
-                    epsilon_uncond = (
-                        weighted_epsilon_uncond / self.agent_weights.sum()
-                    )
-
-                epsilon = epsilon_uncond + self.condition_guidance_w * (
-                    epsilon_cond - epsilon_uncond
-                )
-            else:
-                epsilon = self.agent_models[0](
-                    x,
-                    t,
-                    returns=returns,
-                    env_timestep=env_ts,
-                    attention_masks=attention_masks,
-                    use_dropout=False,
-                )
-            return epsilon
-
         if self.returns_condition:
             
             per_epsilons_con = []
@@ -379,7 +330,7 @@ class GaussianDiffusion(nn.Module):
         progress = utils.Progress(len(timesteps)) if verbose else utils.Silent()
         for t in timesteps:
             
-            x = apply_conditioning(x, cond, self.action_dim)
+            x = apply_conditioning(x, cond, action_dim=self.action_dim)
             x = self.data_encoder(x)
 
             
@@ -396,7 +347,7 @@ class GaussianDiffusion(nn.Module):
                 diffusion.append(x)
 
         
-        x = apply_conditioning(x, cond, self.action_dim)
+        x = apply_conditioning(x, cond, action_dim=self.action_dim)
         x = self.data_encoder(x)
 
         progress.close()
@@ -421,29 +372,21 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.noise_scheduler.add_noise(x_start, noise, t)
-        x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+        x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
-        if getattr(self.model, "agent_share_parameters", False):
-            epsilon = self.agent_models[0](
-                x_noisy,
+        print("DEBUG SHAPE OF X_NOISY:", x_noisy.shape)
+        per_epsilons = []
+        for i, per_model in enumerate(self.agent_models):
+            per_epsilon = per_model(
+                x_noisy[:, :, i, : ],
                 t,
-                returns=returns,
-                env_timestep=env_ts,
-                attention_masks=attention_masks,
+                returns = returns[:, : , i],
+                env_timestep = env_ts,
+                attention_masks = attention_masks,
             )
-        else:
-            per_epsilons = []
-            for i, per_model in enumerate(self.agent_models):
-                per_epsilon = per_model(
-                    x_noisy[:, :, i, :],
-                    t,
-                    returns=returns[:, :, i],
-                    env_timestep=env_ts,
-                    attention_masks=attention_masks,
-                )
-                per_epsilons.append(per_epsilon)
-            epsilon = torch.stack(per_epsilons, dim=2)
+            per_epsilons.append(per_epsilon)
+        epsilon = torch.stack(per_epsilons, dim = 2) 
 
 
         if self.use_learnable_agent_weights:
@@ -463,7 +406,7 @@ class GaussianDiffusion(nn.Module):
             epsilon = epsilon.view(batch_size, seq_len, n_agents, action_dim)
 
         if not self.predict_epsilon:
-            epsilon = apply_conditioning(epsilon, cond, self.action_dim)
+            epsilon = apply_conditioning(epsilon, cond, action_dim=self.action_dim)
             epsilon = self.data_encoder(epsilon)
 
         assert noise.shape == epsilon.shape
@@ -518,7 +461,7 @@ class GaussianDiffusion(nn.Module):
         x_t_minus_1 = (
             model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
         )
-        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond, self.action_dim)
+        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond, action_dim=self.action_dim)
         x_t_minus_1 = self.data_encoder(x_t_minus_1)
 
         
@@ -654,14 +597,14 @@ class GaussianDiffusion(nn.Module):
                 )
             else:
                 diffuse_loss, info = self.p_losses(
-                    x, # 输入状态，包含环境状态和交互信息
-                    cond, # 条件，包含环境状态和交互信息
-                    t, # 时间步
-                    loss_masks, # 损失掩码，用于计算损失
-                    attention_masks, # 注意力掩码，用于模型的注意力机制
-                    returns, # 返回奖励
-                    env_ts, # 环境时间步
-                    states, # 环境状态，可以用于逆动力学模型的输入
+                    x,
+                    cond,
+                    t,
+                    loss_masks,
+                    attention_masks,
+                    returns,
+                    env_ts,
+                    states,
                 )
 
         if self.use_inv_dyn:
@@ -680,4 +623,3 @@ class GaussianDiffusion(nn.Module):
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond=cond, *args, **kwargs)
-

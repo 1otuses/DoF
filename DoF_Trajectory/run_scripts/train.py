@@ -2,6 +2,7 @@ import argparse
 import glob
 import json
 import os
+import numpy as np
 
 import diffuser.utils as utils
 import torch

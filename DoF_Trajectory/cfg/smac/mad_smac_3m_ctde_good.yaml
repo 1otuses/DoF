@@ -49,7 +49,7 @@ constants:
   train_only_inv: False
   clip_denoised: True
   test_ret: 1.0
-  renderer: "utils.SMACRenderer"
+  renderer: "utils.SMACRenderer" # 环境渲染器，提供SMAC特定的可视化功能
 
   # dataset
   loader: "datasets.SequenceDataset"
@@ -64,12 +64,12 @@ constants:
   # training
   n_steps_per_epoch: 1000
   n_train_steps: 100000
-  batch_size: 32
+  batch_size: 64
   learning_rate: 0.0002
   gradient_accumulate_every: 2
   ema_decay: 0.995
   log_freq: 1000
-  save_freq: 10000
+  save_freq: 20000
   sample_freq: 1000
   n_saves: 5
   save_parallel: False
@@ -78,8 +78,8 @@ constants:
 
   # eval
   evaluator: "utils.MADEvaluator"
-  num_envs: 10
-  num_eval: 100
+  num_envs: 10 #10个环境并行评估
+  num_eval: 100 #100个环境评估
   eval_freq: 100000
 
   # load checkpoint

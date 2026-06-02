@@ -10,7 +10,7 @@ from einops.layers.torch import Rearrange
 import diffuser.utils as utils
 
 
-class SinusoidalPosEmb(nn.Module):
+class SinusoidalPosEmb(nn.Module): # 位置编码
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -25,32 +25,31 @@ class SinusoidalPosEmb(nn.Module):
         return emb
 
 
-class Downsample1d(nn.Module):
+class Downsample1d(nn.Module): # 下采样
     def __init__(self, dim):
         super().__init__()
-        self.conv = nn.Conv1d(dim, dim, 3, 2, 1)
+        self.conv = nn.Conv1d(dim, dim, 3, 2, 1) # 3x3卷积, 2步长, 1填充
 
     def forward(self, x):
         return self.conv(x)
 
 
-class Upsample1d(nn.Module):
+class Upsample1d(nn.Module): # 上采样
     def __init__(self, dim):
         super().__init__()
-        self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1)
+        self.conv = nn.ConvTranspose1d(dim, dim, 4, 2, 1) # 4x4转置卷积, 2步长, 1填充
 
     def forward(self, x):
         return self.conv(x)
 
 
-class Conv1dBlock(nn.Module):
+class Conv1dBlock(nn.Module): # 卷积块
     """
     Conv1d --> GroupNorm --> Mish
     """
 
     def __init__(self, inp_channels, out_channels, kernel_size, mish=True, n_groups=8):
         super().__init__()
-
         if mish:
             act_fn = nn.Mish()
         else:
@@ -64,21 +63,21 @@ class Conv1dBlock(nn.Module):
             nn.GroupNorm(n_groups, out_channels),
             Rearrange("batch channels 1 horizon -> batch channels horizon"),
             act_fn,
-        )
+        ) # 卷积层, 归一化层, 激活函数
 
     def forward(self, x):
         return self.block(x)
 
 
-class SelfAttention(nn.Module):
+class SelfAttention(nn.Module): # 卷积自注意力
     def __init__(
         self,
         n_channels: int,
-        qk_n_channels: int,
-        v_n_channels: int,
-        nheads: int = 4,
-        residual: bool = False,
-        use_state: bool = False,
+        qk_n_channels: int, # 查询和键的通道数
+        v_n_channels: int, # 值的通道数
+        nheads: int = 4, # 头数
+        residual: bool = False, # 是否使用残差连接
+        use_state: bool = False, # 是否使用全局状态信息进行注意力计算
     ):
         super().__init__()
         self.nheads = nheads
@@ -144,8 +143,7 @@ class SelfAttention(nn.Module):
         return out
 
 
-
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(nn.Module): # 位置编码
     """Positional encoding."""
 
     def __init__(self, num_hiddens, dropout: float = 0, max_len: int = 1000):
@@ -164,7 +162,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(X)
 
 
-class MlpSelfAttention(nn.Module):
+class MlpSelfAttention(nn.Module): # MLP自注意力
     def __init__(self, dim_in, dim_hidden=128):
         super().__init__()
         self.query_layer = nn.Sequential(
@@ -201,14 +199,13 @@ class MlpSelfAttention(nn.Module):
         return output
 
 
-def extract(a, t, x_shape):
+def extract(a, t, x_shape): # 从张量中提取元素
     b, *_ = t.shape
     a = a.to(t.device)
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
-
-def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
+def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32): # 余弦调度
     """
     cosine schedule
     as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
@@ -221,14 +218,13 @@ def cosine_beta_schedule(timesteps, s=0.008, dtype=torch.float32):
     betas_clipped = np.clip(betas, a_min=0, a_max=0.999)
     return torch.tensor(betas_clipped, dtype=dtype)
 
-def linear_beta_schedule(timesteps, beta_start=1e-4, beta_end=2e-2, dtype=torch.float32):
+def linear_beta_schedule(timesteps, beta_start=1e-4, beta_end=2e-2, dtype=torch.float32): # 线性调度
     betas = np.linspace(
         beta_start, beta_end, timesteps
     )
     return torch.tensor(betas, dtype=dtype)
 
-
-def vp_beta_schedule(timesteps, dtype=torch.float32):
+def vp_beta_schedule(timesteps, dtype=torch.float32): # VP调度
     t = np.arange(1, timesteps + 1)
     T = timesteps
     b_max = 10.
@@ -237,20 +233,18 @@ def vp_beta_schedule(timesteps, dtype=torch.float32):
     betas = 1 - alpha
     return torch.tensor(betas, dtype=dtype)
 
-
-def apply_conditioning(x, conditions, action_dim):
+def apply_conditioning(x, conditions, action_dim): # 应用条件
     
-    
-    apply_basic_cond = False
-    for t, val in conditions.items():
+    apply_basic_cond = False # 是否应用基本条件
+    for t, val in conditions.items(): # 遍历条件字典，t可以是字符串（特殊条件）或整数/元组（基本条件）
         if isinstance(t, str):
-            if t == "player_idxs":
+            if t == "player_idxs": # 玩家索引
                 assert apply_basic_cond
                 if x.shape[-1] < 4:  
                     x = torch.cat([val, x], dim=-1)
                 else:
                     x[:, :, :, 0] = val
-            elif t == "player_hoop_sides":
+            elif t == "player_hoop_sides": # 玩家环侧
                 assert apply_basic_cond
                 if x.shape[-1] < 4:  
                     x = torch.cat([x, val], dim=-1)
@@ -259,11 +253,11 @@ def apply_conditioning(x, conditions, action_dim):
             else:
                 continue
 
-        elif isinstance(t, int):
-            x[:, t, :, action_dim:] = val.clone()
+        elif isinstance(t, int): # 基本条件 - 整数索引
+            x[:, t, :, action_dim:] = val.clone() # 复制条件值到对应位置
             apply_basic_cond = True
-        elif isinstance(t, tuple) or isinstance(t, list):
-            assert len(t) == 2, t
+        elif isinstance(t, tuple) or isinstance(t, list): # 基本条件 - 元组或列表索引
+            assert len(t) == 2, t # 确保元组或列表长度为2
             cond_value = val.clone()
             if "agent_idx" in conditions:
                 x[:, t[0] : t[1] - 1, :, action_dim:] = cond_value[:, :-1]
@@ -281,7 +275,7 @@ def apply_conditioning(x, conditions, action_dim):
             raise TypeError(type(t))
     return x
 
-class WeightedLoss(nn.Module):
+class WeightedLoss(nn.Module): # 加权损失
 
     def __init__(self):
         super().__init__()
@@ -294,23 +288,38 @@ class WeightedLoss(nn.Module):
         weighted_loss = (loss * weights).mean()
         return weighted_loss
 
-class WeightedL1(WeightedLoss):
+class WeightedStateLoss(nn.Module): # 加权状态损失(针对状态预测的加权损失)
+
+    def __init__(self, weights):
+        super().__init__()
+        self.register_buffer("weights", weights) # 注册权重为缓冲区，确保在模型加载时保持不变
+
+    def forward(self, pred, targ):
+        loss = self._loss(pred, targ)
+        weighted_loss = loss * self.weights
+        info = {"a0_loss": weighted_loss.mean()} # 计算平均损失
+        return weighted_loss, info
+
+class WeightedL1(WeightedLoss): # 加权L1损失
 
     def _loss(self, pred, targ):
         return torch.abs(pred - targ)
 
-class WeightedL2(WeightedLoss):
+class WeightedL2(WeightedLoss): # 加权L2损失
+
+    def _loss(self, pred, targ):
+        return F.mse_loss(pred, targ, reduction='none') # reduction='none'返回每个元素的损失值，而不是平均或求和后的结果
+
+class WeightedStateL2(WeightedStateLoss): # 加权状态L2损失
 
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction='none')
 
-
 Losses = {
     'l1': WeightedL1,
     'l2': WeightedL2,
+    'state_l2': WeightedStateL2,
 }
-
-
 
 
 class EMA():
@@ -321,12 +330,12 @@ class EMA():
         super().__init__()
         self.beta = beta
 
-    def update_model_average(self, ma_model, current_model):
+    def update_model_average(self, ma_model, current_model): # 更新模型移动平均值
         for current_params, ma_params in zip(current_model.parameters(), ma_model.parameters()):
             old_weight, up_weight = ma_params.data, current_params.data
             ma_params.data = self.update_average(old_weight, up_weight)
 
-    def update_average(self, old, new):
+    def update_average(self, old, new): # 更新移动平均值
         if old is None:
             return new
-        return old * self.beta + (1 - self.beta) * new
+        return self.beta * old + (1 - self.beta) * new

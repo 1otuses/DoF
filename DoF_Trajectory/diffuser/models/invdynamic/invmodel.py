@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-class JointInvModel(nn.Module): # 联合逆动态模型
+class JointInvModel(nn.Module): # 联合逆动态模型,同时生成所有智能体的动作a_t
     def __init__(self, n_agents, observation_dim, hidden_dim, output_dim):
         super(JointInvModel, self).__init__()
         self.model = nn.Sequential(
@@ -15,7 +15,7 @@ class JointInvModel(nn.Module): # 联合逆动态模型
     def forward(self, x):
         return self.model(x)
 
-class SharedInvModel(nn.Module): # 共享逆动态模型
+class SharedInvModel(nn.Module): # 共享逆动态模型,同构
     def __init__(self, observation_dim, hidden_dim, output_dim):
         super(SharedInvModel, self).__init__()
         self.model = nn.Sequential(
@@ -29,7 +29,7 @@ class SharedInvModel(nn.Module): # 共享逆动态模型
     def forward(self, x):
         return self.model(x)
 
-class IndependentInvModel(nn.Module): # 独立逆动态模型
+class IndependentInvModel(nn.Module): # 独立逆动态模型,异构
     def __init__(self, n_agents, observation_dim, hidden_dim, output_dim, discrete_action=False):
         super(IndependentInvModel, self).__init__()
         self.models = nn.ModuleList([

@@ -5,7 +5,7 @@ meta_data:
   job_name: "{dataset}/iclr_{horizon}-{model}-r_{returns_scale}-guidew_{condition_guidance_w}-ctde_{decentralized_execution}_linear"
 
 variables:
-  seed: [100, 200]
+  seed: [100]
 
   horizon: [24] # 环境的步长
 

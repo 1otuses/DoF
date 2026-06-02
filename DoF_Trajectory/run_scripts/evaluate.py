@@ -107,7 +107,6 @@ def _log_results_to_tb(writer, path):
         # val may be a per-agent list (e.g. [173.4, 173.4, 183.4])
         # TensorBoard add_scalar requires a scalar, so take mean across agents
         if isinstance(val, (list, tuple, np.ndarray)):
-            import numpy as np
             for i, v in enumerate(val):
                 writer.add_scalar(f"eval/{k}/agent_{i}", float(v), load_step)
             writer.add_scalar(f"eval/{k}/mean", float(np.mean(val)), load_step)

@@ -293,21 +293,6 @@ class WeightedLoss(nn.Module):
         loss = self._loss(pred, targ)
         weighted_loss = (loss * weights).mean()
         return weighted_loss
-    
-
-class WeightedStateLoss(nn.Module):
-    def __init__(self, weights):
-        super().__init__()
-        self.register_buffer("weights", weights)
-
-    def forward(self, pred, targ):
-        """
-        pred, targ : tensor
-            [ batch_size x horizon x transition_dim ]
-        """
-        loss = self._loss(pred, targ)
-        weighted_loss = (loss * self.weights).mean()
-        return loss * self.weights, {"a0_loss": weighted_loss}
 
 class WeightedL1(WeightedLoss):
 
@@ -318,16 +303,11 @@ class WeightedL2(WeightedLoss):
 
     def _loss(self, pred, targ):
         return F.mse_loss(pred, targ, reduction='none')
-    
-class WeightedStateL2(WeightedStateLoss):
-    def _loss(self, pred, targ):
-        return F.mse_loss(pred, targ, reduction="none")
 
 
 Losses = {
     'l1': WeightedL1,
     'l2': WeightedL2,
-    'state_l2': WeightedStateL2,
 }
 
 

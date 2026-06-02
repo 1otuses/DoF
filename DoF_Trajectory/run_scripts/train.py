@@ -144,6 +144,15 @@ def main(Config, RUN):
         use_learnable_agent_weights=Config.use_learnable_agent_weights,
         use_inv_dyn=Config.use_inv_dyn,
         device=Config.device,
+        # ---- 信用引导参数 (CreditGuidedDiffusion 专用, GaussianDiffusion 忽略) ----
+        use_credit_guide=getattr(Config, "use_credit_guide", False),
+        credit_hidden_dim=getattr(Config, "credit_hidden_dim", 256),
+        credit_router_mode=getattr(Config, "credit_router_mode", "minmax"),
+        credit_lambda=getattr(Config, "credit_lambda", 0.01),
+        cql_alpha=getattr(Config, "cql_alpha", 1.0),
+        credit_condition_dropout=getattr(Config, "credit_condition_dropout", 0.2),
+        cfg_guidance_w=getattr(Config, "cfg_guidance_w", 1.2),
+        cfg_credit_w=getattr(Config, "cfg_credit_w", 0.5),
     )
 
     trainer_config = utils.Config(

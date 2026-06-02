@@ -1,0 +1,121 @@
+# 信用引导扩散模型 (Credit-Guided Diffusion) 配置文件
+# 基于 SMAC 3m-Good 配置，集成信用引导模块
+# ==============================================================
+# 主要变更：
+#   1. diffusion → models.my_diffusion.CreditGuidedDiffusion
+#   2. 新增信用引导参数 use_credit_guide, credit_lambda 等
+#   3. 新增 CQL 保守系数 cql_alpha
+#   4. 新增 Hierarchical CFG 引导权重 cfg_credit_w
+
+meta_data:
+  exp_name: "mad_smac_credit"
+  script_path: "run_scripts/train.py"
+  num_workers: 1
+  job_name: "{dataset}/iclr_h_{horizon}-hh_{history_horizon}-{model}-r_{returns_scale}-credit"
+
+variables:
+  seed: [100]
+  horizon: [4]
+  history_horizon: [20]
+  returns_scale: [20]
+  dataset: ["3m-Good"]
+  condition_guidance_w: [1.2]
+
+constants:
+  # ==================== 基础配置 ====================
+  seed: 100
+  env_type: "smac"
+  n_agents: 3
+  use_action: True
+  discrete_action: True
+  residual_attn: True
+  decentralized_execution: True
+  use_zero_padding: False
+  pred_future_padding: True
+  use_ddim_sample: False
+  n_ddim_steps: 15
+  use_consistency_models_sample: False
+  n_consistency_models_steps: 5
+
+  # ==================== 模型 ====================
+  # --- 骨干模型保持不变 ---
+  model: "models.SharedIndependentTemporalUnet"
+
+  # --- 扩散模型：切换为信用引导版本 ---
+  diffusion: "models.my_diffusion.CreditGuidedDiffusion"
+
+  share_inv: True
+  n_diffusion_steps: 200
+  action_weight: 10
+  loss_weights: null
+  loss_discount: 1
+  use_return_to_go: True
+  dim_mults: [1, 4, 8]
+  returns_condition: True
+  predict_epsilon: True
+  calc_energy: False
+  dim: 128
+  hidden_dim: 256
+  condition_dropout: 0.25
+  condition_guidance_w: 1.2
+  train_only_inv: False
+  clip_denoised: True
+  test_ret: 1.0
+  renderer: "utils.SMACRenderer"
+
+  # ==================== 信用引导参数 ====================
+  # --- 是否启用信用引导 ---
+  use_credit_guide: True
+
+  # --- Credit Critic ---
+  credit_hidden_dim: 256      # Q_i MLP 隐藏层维度
+  credit_lambda: 0.01          # 信用损失联合权重 λ
+
+  # --- CQL ---
+  cql_alpha: 1.0               # CQL 保守系数
+
+  # --- Condition Router ---
+  credit_router_mode: "minmax" # 归一化模式: minmax | softmax
+
+  # --- Categorical Dropout ---
+  credit_condition_dropout: 0.2  # 信用条件丢弃率
+
+  # --- Hierarchical CFG ---
+  cfg_guidance_w: 1.2           # 全局引导 w_r
+  cfg_credit_w: 0.5            # 信用引导 w_c
+
+  # ==================== 数据集 ====================
+  loader: "datasets.SequenceDataset"
+  normalizer: "CDFNormalizer"
+  max_n_episodes: 50000
+  preprocess_fns: []
+  use_padding: True
+  discount: 0.99
+  max_path_length: 60
+  termination_penalty: 0.0
+  use_learnable_agent_weights: True
+
+  # ==================== 训练 ====================
+  n_steps_per_epoch: 1000
+  n_train_steps: 100000
+  batch_size: 32
+  learning_rate: 0.0002
+  gradient_accumulate_every: 2
+  ema_decay: 0.995
+  log_freq: 1000
+  save_freq: 10000
+  sample_freq: 1000
+  n_saves: 5
+  save_parallel: False
+  n_reference: 3
+  save_checkpoints: True
+
+  # ==================== 评估 ====================
+  evaluator: "utils.MADEvaluator"
+  num_envs: 10
+  num_eval: 100
+  eval_freq: 100000
+
+  # ==================== 加载检查点 ====================
+  continue_training: False
+

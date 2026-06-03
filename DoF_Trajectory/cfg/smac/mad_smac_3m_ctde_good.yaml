@@ -9,7 +9,7 @@ variables:
 
   horizon: [4]
   history_horizon: [20]
-  returns_scale: [20]
+  returns_scale: [20] # 回报的缩放因子,控制回报范围,训练更稳定
   dataset: ["3m-Good"]
   condition_guidance_w: [1.2]
 
@@ -48,7 +48,7 @@ constants:
   condition_guidance_w: 1.2
   train_only_inv: False
   clip_denoised: True
-  test_ret: 1.0
+  test_ret: 1.0 # 推理时,生成最优轨迹的回报目标,通常设置为1.0或接近1.0的值
   renderer: "utils.SMACRenderer" # 环境渲染器，提供SMAC特定的可视化功能
 
   # dataset
@@ -63,24 +63,24 @@ constants:
   use_learnable_agent_weights: True
   # training
   n_steps_per_epoch: 1000
-  n_train_steps: 100000
-  batch_size: 64
+  n_train_steps: 50000
+  batch_size: 128
   learning_rate: 0.0002
   gradient_accumulate_every: 2
   ema_decay: 0.995
   log_freq: 1000
-  save_freq: 20000
+  save_freq: 10000
   sample_freq: 1000
   n_saves: 5
   save_parallel: False
   n_reference: 3
   save_checkpoints: True
 
-  # eval
+  # eval 训练中评估设置
   evaluator: "utils.MADEvaluator"
   num_envs: 10 #10个环境并行评估
   num_eval: 100 #100个环境评估
-  eval_freq: 100000
+  eval_freq: 50000
 
   # load checkpoint
   continue_training: False

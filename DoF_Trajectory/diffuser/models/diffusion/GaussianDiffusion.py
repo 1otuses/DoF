@@ -851,7 +851,7 @@ class GaussianDiffusion(nn.Module):
 
     def forward(self, cond, *args, **kwargs):
         """
-        前向传播(推理时使用):从条件cond生成轨迹。
-        等价于调用 conditional_sample。
+        前向传播(推理时使用):从条件cond生成轨迹
+        等价于调用 conditional_sample
         """
         return self.conditional_sample(cond=cond, *args, **kwargs)

@@ -9,7 +9,7 @@ variables:
 
   horizon: [24] # 环境的步长
 
-  returns_scale: [700] # 奖励的缩放因子
+  returns_scale: [700]
   dataset: ["simple_spread-expert"]
   condition_guidance_w: [1.2] # 条件指导的权重,用来引导模型生成符合条件的轨迹,通常大于1
 
@@ -41,7 +41,7 @@ constants:
   dim_mults: [1, 4, 8] # Unet每层的维度是基础维度的倍数
   returns_condition: True
   predict_epsilon: True
-  calc_energy: False
+  calc_energy: False # 是否计算能量(仅用于监控，不参与训练)
   dim: 128 
   hidden_dim: 256
   condition_dropout: 0.25
@@ -49,11 +49,11 @@ constants:
   train_only_inv: False
   clip_denoised: True
   test_ret: 0.9
-  renderer: "utils.MPERenderer"
+  renderer: "utils.MPERenderer" # 环境渲染器，提供MPE特定的可视化功能
 
   # dataset
-  loader: "datasets.SequenceDataset"
-  normalizer: "CDFNormalizer"
+  loader: "datasets.SequenceDataset" # 序列数据集加载器,用于加载MPE数据集
+  normalizer: "CDFNormalizer" # CDF归一化器,用于将数据归一化到0-1之间
   max_n_episodes: 200000
   preprocess_fns: []
   use_padding: True
@@ -78,7 +78,7 @@ constants:
 
   # eval
   evaluator: "utils.MADEvaluator"
-  num_eval: 10
+  num_eval: 5
   eval_freq: 10000
 
   # load checkpoint

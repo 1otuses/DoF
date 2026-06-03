@@ -11,8 +11,8 @@ variables:
   ]
 
 constants:
-  load_steps: [0, 20000, 40000] # 加载的step
-  num_eval: 3 # 评估的环境数量
+  load_steps: [0, 10000, 20000, 30000, 40000] # 加载的step
+  num_eval: 5 # 评估的环境数量
   num_envs: 5 # 环境数量
   evaluator: "utils.MADEvaluator"
   overwrite: True

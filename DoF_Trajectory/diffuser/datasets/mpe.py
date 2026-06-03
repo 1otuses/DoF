@@ -178,6 +178,9 @@ def sequence_dataset(env, preprocess_fn, seed: int = None):
         seed_dirs = [f"seed_{seed}_data"]
 
     n_agents = env.n
+
+    # ---- 尝试加载 seed 子目录格式 ----
+    loaded_seed_data = False
     for idx, seed_dir in enumerate(seed_dirs):
         seed_path = os.path.join(dataset_path, seed_dir)
         if not os.path.isdir(seed_path):
@@ -213,6 +216,7 @@ def sequence_dataset(env, preprocess_fn, seed: int = None):
             axis=1,
         )
 
+        loaded_seed_data = True
         data_ = collections.defaultdict(list)
         for obs, act, rew, done in zip(observations, actions, rewards, dones):
             data_["observations"].append(obs)
@@ -230,6 +234,35 @@ def sequence_dataset(env, preprocess_fn, seed: int = None):
                     episode_data[k] = np.array(data_[k])
                 yield episode_data
                 data_ = collections.defaultdict(list)
+
+    # ---- 如果 seed 子目录格式没有数据，回退到 flat 格式 ----
+    if not loaded_seed_data:
+        flat_obs_path = os.path.join(dataset_path, "obs.npy")
+        flat_path_lengths_path = os.path.join(dataset_path, "path_lengths.npy")
+        if os.path.exists(flat_obs_path) and os.path.exists(flat_path_lengths_path):
+            print("\n USE FLAT DATASET FORMAT \n")
+            observations = np.load(flat_obs_path)                      # [total_steps, A, O]
+            path_lengths = np.load(flat_path_lengths_path)             # [n_episodes]
+
+            # 按 path_lengths 将平铺数据切分为独立 episode
+            start = 0
+            for ep_len in path_lengths:
+                end = start + ep_len
+                episode_data = {
+                    "observations": observations[start:end],           # [ep_len, A, O]
+                    "rewards": np.load(os.path.join(dataset_path, "rewards.npy"))[start:end],
+                    "terminals": np.zeros((ep_len, n_agents)),         # 统一设为非终止
+                    "timeouts": np.zeros((ep_len, n_agents)),
+                }
+                if os.path.exists(os.path.join(dataset_path, "actions.npy")):
+                    episode_data["actions"] = np.load(os.path.join(dataset_path, "actions.npy"))[start:end]
+                # 最后一步标记为 termination（或 timeout）
+                episode_data["terminals"][-1] = 1.0
+                episode_data["timeouts"][-1] = 0.0
+                yield episode_data
+                start = end
+        else:
+            print(f"\n WARNING: No valid data found in {dataset_path} \n")
 
 
 if __name__ == "__main__":

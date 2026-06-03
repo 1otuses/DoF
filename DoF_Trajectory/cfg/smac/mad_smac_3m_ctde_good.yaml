@@ -30,7 +30,26 @@ constants:
   n_consistency_models_steps: 5
 
   # model
-  model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
+  # 
+  #     model的选择说明:
+  #       基础设置: 
+  #       - agent_share_parameters调控参数共享,同构agent共享参数,异构agent不共享参数
+  #       - 跨agent交互: 无注意力、SelfAttention、TemporalSelfAttention
+  #       - 基础架构: Unet、Conv-Attention-Deconv、MLP(适用于horizon=1)
+  #     model:
+  #     temporal_unet.py:
+  #     - ConcatenatedTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,通过concat隐式交互
+  #     - IndependentTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,无交互
+  #     attenunet.py:
+  #     - ConvAttentionDeconv: 每个agent独立Unet,不共享权重,有跨agent卷积注意力(TemporalSelfAttention 或 SelfAttention)
+  #     sharedattenunet.py:
+  #     - SharedConvAttentionDeconv: 所有agent共享Unet,有跨agent卷积注意力(TemporalSelfAttention)
+  #     - SharedAttentionAutoEncoder: 所有agent共享MLP,有跨agent注意力,MLP的单步去噪
+  #     shared_temporal_unet.py:
+  #     - SharedIndependentTemporalUnet: 所有agent共享TemporalUnet,无注意力,无交互
+  # 
   diffusion: "models.GaussianDiffusion"
   share_inv: True
   n_diffusion_steps: 200
@@ -63,8 +82,8 @@ constants:
   use_learnable_agent_weights: True
   # training
   n_steps_per_epoch: 1000
-  n_train_steps: 50000
-  batch_size: 128
+  n_train_steps: 100000
+  batch_size: 32
   learning_rate: 0.0002
   gradient_accumulate_every: 2
   ema_decay: 0.995
@@ -80,7 +99,7 @@ constants:
   evaluator: "utils.MADEvaluator"
   num_envs: 10 #10个环境并行评估
   num_eval: 100 #100个环境评估
-  eval_freq: 50000
+  eval_freq: 100000
 
   # load checkpoint
   continue_training: False

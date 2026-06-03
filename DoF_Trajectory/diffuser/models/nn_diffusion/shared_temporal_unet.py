@@ -7,15 +7,25 @@ import torch.nn as nn
 from .basic import TemporalUnet, TemporalValue
 
 
-
 class SharedIndependentTemporalUnet(nn.Module):
+    """
+    共享参数时间U-Net —— 所有智能体共享同一个 TemporalUnet 的参数
+    核心思想：
+    - agent_share_parameters = True: 所有agent共用一套网络参数
+    - 将[B, T, A, F] reshape为[B*A, T, F],把agent维度合并到batch维度
+    - 一次性送入共享的 TemporalUnet 处理
+    - 这样每个agent看到的是相同参数的U-Net,但处理各自的观测序列
+    - 虽然在参数级别不区分agent,但通过不同的returns条件可以产生差异化输出
+    
+    计算效率：比 TemporalUnet 节省 A 倍参数,适合同构agent场景
+    """
     agent_share_parameters = True
 
     def __init__(
         self,
         n_agents: int,
         horizon: int,
-        history_horizon: int,  
+        history_horizon: int,
         transition_dim: int,
         dim: int = 128,
         dim_mults: Tuple[int] = (1, 2, 4, 8),
@@ -23,7 +33,7 @@ class SharedIndependentTemporalUnet(nn.Module):
         env_ts_condition: bool = False,
         condition_dropout: float = 0.1,
         kernel_size: int = 5,
-        residual_attn: bool = False,  
+        residual_attn: bool = False,
         max_path_length: int = 100,
     ):
         super().__init__()
@@ -34,6 +44,7 @@ class SharedIndependentTemporalUnet(nn.Module):
         self.env_ts_condition = env_ts_condition
         self.history_horizon = history_horizon
 
+        # 所有agent共享一个TemporalUnet
         self.net = TemporalUnet(
             horizon=horizon,
             history_horizon=history_horizon,
@@ -59,18 +70,24 @@ class SharedIndependentTemporalUnet(nn.Module):
         **kwargs,
     ):
         """
-        x : [ batch x horizon x agent x transition ]
-        returns : [batch x agent x horizon]
+        Args:
+            x: [B, T, A, F] 多智能体输入
+            time: [B] 扩散时间步
+            returns: [B, 1, A] 条件returns
+        Returns:
+            x: [B, T, A, F] 去噪后输出
         """
-
         assert x.shape[2] == self.n_agents, f"{x.shape}, {self.n_agents}"
 
+        # [B, T, A, F] -> [B, A, T, F] 将agent提到batch旁
         x = einops.rearrange(x, "b t a f -> b a t f")
         bs = x.shape[0]
 
+        # [关键] 将agent维度合并到batch: [B, A, T, F] -> [B*A, T, F]
+        # 这样所有agent共享同一网络，每个agent独立前向
         x = self.net(
             x.reshape(x.shape[0] * x.shape[1], x.shape[2], x.shape[3]),
-            time=torch.cat([time for _ in range(x.shape[1])], dim=0),
+            time=torch.cat([time for _ in range(x.shape[1])], dim=0),  # 复制A份time
             returns=torch.cat(
                 [returns[:, :, a_idx] for a_idx in range(self.n_agents)], dim=0
             )
@@ -87,11 +104,18 @@ class SharedIndependentTemporalUnet(nn.Module):
             use_dropout=use_dropout,
             force_dropout=force_dropout,
         )
+        # 恢复shape: [B*A, T, F] -> [B, A, T, F] -> [B, T, A, F]
         x = x.reshape(bs, x.shape[0] // bs, x.shape[1], x.shape[2])
         x = einops.rearrange(x, "b a t f -> b t a f")
         return x
 
 class SharedIndependentTemporalValue(nn.Module):
+    """
+    共享参数时间价值网络 —— 与 SharedIndependentTemporalUnet 配套的价值网络
+    
+    所有agent共享一个 TemporalValue 网络,同样通过reshape将agent合并到batch维度
+    最后输出每个agent的价值并返回。
+    """
     agent_share_parameters = True
 
     def __init__(
@@ -106,6 +130,7 @@ class SharedIndependentTemporalValue(nn.Module):
         super().__init__()
 
         self.n_agents = n_agents
+        # 所有agent共享一个TemporalValue
         self.net = TemporalValue(
             horizon=horizon,
             transition_dim=transition_dim,
@@ -116,20 +141,23 @@ class SharedIndependentTemporalValue(nn.Module):
 
     def forward(self, x, time, *args):
         """
-        x : [ batch x horizon x n_agents x transition ]
+        Args:
+            x: [B, T, A, F] 多智能体观测
+            time: [B] 扩散时间步
+        Returns:
+            out: [B, A] 每个agent独立预测的价值
         """
-
-        assert (
-            x.shape[2] == self.n_agents
-        ), f"Expected {self.n_agents} agents, but got samples with shape {x.shape}"
+        assert x.shape[2] == self.n_agents, f"Expected {self.n_agents}, got {x.shape}"
 
         x = einops.rearrange(x, "b t a f -> b a t f")
         bs = x.shape[0]
 
+        # 合并agent到batch: [B*A, T, F]
         out = self.net(
             x.reshape(x.shape[0] * x.shape[1], x.shape[2], x.shape[3]),
             time=torch.cat([time for _ in range(x.shape[1])], dim=0),
         )
+        # 恢复: [B*A, 1] -> [B, A, 1]
         out = out.reshape(bs, out.shape[0] // bs, out.shape[1])
 
         return out

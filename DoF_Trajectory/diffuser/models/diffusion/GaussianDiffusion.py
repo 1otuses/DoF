@@ -4,12 +4,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler  # DDPM噪声调度器（前向加噪+反向去噪）
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler  # DDIM采样调度器（加速采样）
-from diffusers.schedulers.scheduling_consistency_models import CMStochasticIterativeScheduler  # 一致性模型调度器（一步/少步采样）
+from diffusers.schedulers.scheduling_ddim import DDIMScheduler  # DDIM采样调度器（加速采样，通常15~50步）
+from diffusers.schedulers.scheduling_consistency_models import CMStochasticIterativeScheduler  # 一致性模型调度器（单步/少步采样）
 
 
 import diffuser.utils as utils
-from diffuser.models.helpers import Losses, apply_conditioning  # Losses: 损失函数集合; apply_conditioning: 将条件约束应用到张量上
+from diffuser.models.helpers import Losses, apply_conditioning  # Losses: 损失函数集合（'l2', 'state_l2'等）;  apply_conditioning: 将条件约束（已知观测）替换到张量中
 
 
 class QMixNet(nn.Module):
@@ -59,39 +59,42 @@ class GaussianDiffusion(nn.Module):
     2. 反向去噪过程：训练一个神经网络预测噪声，从纯噪声逐步还原出有意义的轨迹。
     3. 可选的逆动力学模型(Inverse Dynamics)：从观测序列中重建动作。
     4. 支持 classifier-free guidance(无分类器引导)和 returns guided 采样。
+    B = batch_size, T = horizon(规划长度), H = history_horizon(历史窗口)
+    N = n_agents(智能体数), O = observation_dim(观测维度), A = action_dim(动作维度)
+    完整轨迹长度 = T + H
     """
     def __init__(
         self,
-        model,                                    # 核心去噪U-Net/Transformer模型，用于预测噪声或原始数据
-        n_agents: int,
-        horizon: int,                             # 规划/生成的轨迹长度
-        history_horizon: int,                     # 历史上下文长度(conditioning窗口，不计入主loss)
-        observation_dim: int,
-        action_dim: int,
+        model,                                    # 核心去噪U-Net/Transformer模型，用于预测噪声ε_θ或原始数据x_0
+        n_agents: int,                            # N
+        horizon: int,                             # T
+        history_horizon: int,                     # H
+        observation_dim: int,                     # O
+        action_dim: int,                          # A
         use_inv_dyn: bool = True,
         discrete_action: bool = False,
-        num_actions: int = 0,                     # 离散动作空间的大小(仅discrete_action=True时有效)
-        n_timesteps: int = 1000,                  # 扩散过程的总时间步数
-        clip_denoised: bool = False,              # 是否将去噪结果裁剪到[-1,1]
-        predict_epsilon: bool = True,             # True: 预测噪声; False: 预测原始数据x0
-        action_weight: float = 1.0,               # 动作部分在loss中的额外权重
+        num_actions: int = 0,                     # 离散动作空间大小
+        n_timesteps: int = 1000,                  # 扩散过程总时间步数
+        clip_denoised: bool = False,
+        predict_epsilon: bool = True,             # True: 预测噪声 ε; False: 预测原始数据 x_0
+        action_weight: float = 1.0,               # 不使用逆动力学时，动作部分loss的额外权重
         hidden_dim: int = 256,
-        loss_discount: float = 1.0,               # 时间步折扣因子(gamma，越远的步权重越低)
-        loss_weights: np.ndarray = None,          # 自定义loss权重矩阵(覆盖自动计算)
-        state_loss_weight: float = None,          # 状态部分loss的额外权重(未使用)
-        opponent_loss_weight: float = None,       # 对手智能体观测部分的loss权重衰减
-        returns_condition: bool = False,          # 是否使用returns进行条件生成(classifier-free guidance)
-        condition_guidance_w: float = 1.2,        # classifier-free guidance的权重w
-        returns_loss_guided: bool = False,        # 是否使用returns引导的loss(通过value function引导)
-        loss_guidence_w: float = 0.1,             # returns引导loss的权重系数
-        value_diffusion_model: nn.Module = None,  # value function扩散模型(用于returns_loss_guided)
-        train_only_inv: bool = False,             # 是否只训练逆动力学模型，冻结扩散模型
-        share_inv: bool = True,                   # 是否所有智能体共享同一个逆动力学网络,用于同构agent
-        joint_inv: bool = False,                  # 是否使用联合逆动力学(所有智能体一起输入一起输出)
-        data_encoder: utils.Encoder = utils.IdentityEncoder(),  # 数据编码器（恒等映射/归一化等）
-        use_learnable_agent_weights=False,        # 是否为每个智能体学习可训练的权重(用于加权聚合)
-        use_qmix_combiner=False,                  # 是否使用QMix对多智能体输出进行混合
-        use_data_agent_weights=False,             # 是否学习数据级别的智能体权重
+        loss_discount: float = 1.0,
+        loss_weights: np.ndarray = None,          # 自定义loss权重矩阵（覆盖自动计算）
+        state_loss_weight: float = None,          # （预留）状态部分loss的额外权重
+        opponent_loss_weight: float = None,       # 对手观测部分loss的衰减权重（用于部分可观场景）
+        returns_condition: bool = False,          # 是否使用 returns 进行条件生成（Classifier-Free Guidance）
+        condition_guidance_w: float = 1.2,        # Classifier-Free Guidance 的引导强度 w
+        returns_loss_guided: bool = False,        # 是否使用 returns 引导的loss（通过价值函数引导采样）
+        loss_guidence_w: float = 0.1,             # returns 引导loss的权重系数
+        value_diffusion_model: nn.Module = None,  # 预训练的 value diffusion 模型（用于 returns_loss_guided）
+        train_only_inv: bool = False,
+        share_inv: bool = True,
+        joint_inv: bool = False,
+        data_encoder: utils.Encoder = utils.IdentityEncoder(),  # 数据编码器（默认为恒等映射）
+        use_learnable_agent_weights=False,        # 为每个智能体学习可训练权重，用于加权聚合多智能体输出
+        use_qmix_combiner=False,                  # 使用 QMix 网络对多智能体输出进行单调混合
+        use_data_agent_weights=False,             # 学习数据级别的智能体权重（用于非平衡数据场景）
         **kwargs,
     ):
         assert action_dim > 0
@@ -106,12 +109,12 @@ class GaussianDiffusion(nn.Module):
         self.horizon = horizon # T
         self.history_horizon = history_horizon # H
         self.observation_dim = observation_dim # O
-        self.action_dim = action_dim # U
+        self.action_dim = action_dim # A
         self.state_loss_weight = state_loss_weight
         self.opponent_loss_weight = opponent_loss_weight
         self.discrete_action = discrete_action
-        self.num_actions = num_actions # A
-        self.transition_dim = observation_dim + action_dim  # 转移维度 (O+U)
+        self.num_actions = num_actions # N
+        self.transition_dim = observation_dim + action_dim  # 转移维度 (O+A)
         
         # ========== 网络模块 ==========
         self.model = model
@@ -119,11 +122,11 @@ class GaussianDiffusion(nn.Module):
         self.train_only_inv = train_only_inv
         self.share_inv = share_inv
         self.joint_inv = joint_inv
-        self.data_encoder = data_encoder
+        self.data_encoder = data_encoder # 数据编码器
         self.use_learnable_agent_weights = use_learnable_agent_weights
         self.use_qmix_combiner = use_qmix_combiner
         self.use_data_agent_weights = use_data_agent_weights
-
+        self.agent_models = nn.ModuleList([model for _ in range(n_agents)])
         if self.use_qmix_combiner:
             self.qmix_net = QMixNet(observation_dim, n_agents, action_dim)
 
@@ -169,26 +172,6 @@ class GaussianDiffusion(nn.Module):
         # state_l2: 只对观测部分算MSE(动作由逆动力学重建)
         # l2: 对整个transition(观测+动作)算MSE
         self.loss_fn = Losses[loss_type](loss_weights)
-
-    def load_state_dict(self, state_dict, strict=True):
-        """
-        加载模型参数,兼容旧版checkpoint格式。
-        旧版checkpoint的key格式为 "agent_models.0.net.xxx", "agent_models.1.net.xxx",
-        新版代码直接使用 "model.net.xxx"。
-        由于旧版所有 agent_models 副本共享相同权重，只取 agent_models.0 的权重进行重映射。
-        """
-        new_state_dict = {}
-        for key, val in state_dict.items():
-            if key.startswith("agent_models."):
-                # 将 "agent_models.X.net.YYY" 重映射为 "model.net.YYY"
-                new_key = "model." + key.split(".", 2)[2]
-                # 只取 agent_models.0 的副本（所有副本权重相同）
-                if key.startswith("agent_models.0."):
-                    new_state_dict[new_key] = val
-                # 跳过 agent_models.1.*, agent_models.2.*
-            else:
-                new_state_dict[key] = val
-        return super().load_state_dict(new_state_dict, strict=strict)
 
     def _build_inv_model(self, hidden_dim: int, output_dim: int):
         """
@@ -323,9 +306,21 @@ class GaussianDiffusion(nn.Module):
         attention_masks: Optional[torch.Tensor] = None,  # attention mask(可选)
         states: Optional[torch.Tensor] = None,     # 全局状态(可选，用于QMix)
     ):
+        # (仅在首次调用时打印一次维度信息，避免干扰进度条)
+        print("get_model_output: \n " \
+        "x.shape={}, \n " \
+        "t.shape={}, \n " \
+        "returns.shape={}, \n " \
+        "env_ts.shape={}, \n " \
+        "attention_masks.shape={}, \n " \
+        "states.shape={}".format(
+            x.shape, t.shape, returns.shape if returns is not None else None,
+            env_ts.shape if env_ts is not None else None,
+            attention_masks.shape if attention_masks is not None else None,
+            states.shape if states is not None else None,
+        ))
         """
         获取模型输出(predicted epsilon/x0),支持可选的条件生成
-        
         当 self.returns_condition=True 时，使用 classifier-free guidance (CFG):
         - epsilon_cond: 有条件预测(给定returns)
         - epsilon_uncond: 无条件预测(通过use_dropout=True丢弃条件)
@@ -335,28 +330,59 @@ class GaussianDiffusion(nn.Module):
         - 对每个智能体的输出进行加权平均(可学习的智能体重要性权重)
         """
         if self.returns_condition:
+            
+            per_epsilon_con = []
+            for i, per_model in enumerate(self.agent_models):
+                per_epsilon = per_model(
+                    x[:, :, i, :], # 每个智能体独立前向传播，输入是该智能体的观测序列 
+                    t,
+                    returns = returns[:, :, i],
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=False,
+                )
+                per_epsilon_con.append(per_epsilon)
+            epsilon_cond = torch.stack(per_epsilon_con, dim=2)
+
             # ---- 有条件预测 ----
-            epsilon_cond = self.model(
-                x, t,
-                returns=returns,
-                env_timestep=env_ts,
-                attention_masks=attention_masks,
-                use_dropout=False,  # 不使用dropout，保留条件信息
-            )
+            # epsilon_cond = self.model(
+            #     x, t,
+            #     returns=returns,
+            #     env_timestep=env_ts,
+            #     attention_masks=attention_masks,
+            #     use_dropout=False,  # 不使用dropout，保留条件信息
+            # )
             # 可学习智能体加权（可选）
             if self.use_learnable_agent_weights:
+
                 weighted_epsilon_cond = epsilon_cond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_cond = weighted_epsilon_cond / self.agent_weights.sum()
 
+            per_epsilons_uncon = []
+            for i, per_model in enumerate(self.agent_models):
+                per_epsilon_un = per_model(
+                    x[:,:,i,:],
+                    t,
+                    returns = returns[:,:,i],
+                    env_timestep = env_ts,
+                    attention_masks = attention_masks,
+                    use_dropout=True,
+                    )
+                per_epsilons_uncon.append(per_epsilon_un)
+
+            epsilon_uncond = torch.stack(per_epsilons_uncon, dim=2)
+
+
             # ---- 无条件预测 ----
-            epsilon_uncond = self.model(
-                x, t,
-                returns=returns,
-                env_timestep=env_ts,
-                attention_masks=attention_masks,
-                use_dropout=True,  # 使用dropout，丢弃条件信息近似无条件
-            )
+            # epsilon_uncond = self.model(
+            #     x, t,
+            #     returns=returns,
+            #     env_timestep=env_ts,
+            #     attention_masks=attention_masks,
+            #     use_dropout=True,  # 使用dropout，丢弃条件信息近似无条件
+            # )
             if self.use_learnable_agent_weights:
+
                 weighted_epsilon_uncond = epsilon_uncond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_uncond = weighted_epsilon_uncond / self.agent_weights.sum()
 
@@ -365,14 +391,27 @@ class GaussianDiffusion(nn.Module):
                 epsilon_cond - epsilon_uncond
             )
         else:
+            per_epsilons = []
+            for i, per_model in enumerate(self.agent_models):
+                per_epsilon = per_model(
+                    x[:,:,i,:],
+                    t,
+                    returns = returns[:,:,i],
+                    env_timestep = env_ts,
+                    attention_masks = attention_masks,
+                    use_dropout=False,
+                )
+                per_epsilons.append(per_epsilon)
+            epsilons = per_epsilons
+            epsilon =  torch.stack(epsilons, dim=2)
             # 不使用条件生成，直接模型前向传播
-            epsilon = self.model(
-                x, t,
-                returns=returns,
-                env_timestep=env_ts,
-                attention_masks=attention_masks,
-                use_dropout=False,
-            )
+            # epsilon = self.model(
+            #     x, t,
+            #     returns=returns,
+            #     env_timestep=env_ts,
+            #     attention_masks=attention_masks,
+            #     use_dropout=False,
+            # )
 
         return epsilon
 
@@ -389,7 +428,6 @@ class GaussianDiffusion(nn.Module):
     ):
         """
         条件采样：从纯噪声开始，逐步去噪生成智能体的观测序列
-        
         采样过程：
         1. 从高斯噪声 N(0, 0.5*I) 初始化 x_T
         2. 对每个时间步 t = T-1, T-2, ..., 0:
@@ -397,7 +435,6 @@ class GaussianDiffusion(nn.Module):
            b. 通过模型预测噪声 epsilon
            c. 用 scheduler.step 进行一次去噪:x_{t-1} = step(x_t, epsilon)
         3. 返回最终生成的观测序列 x_0
-        
         Args:
             cond: 条件字典，包含已知的观测片段等信息
             returns: 条件returns值(用于CFG)
@@ -406,10 +443,9 @@ class GaussianDiffusion(nn.Module):
             attention_masks: 注意力掩码
             verbose: 是否显示进度条
             return_diffusion: 是否返回完整的扩散过程
-            
         Returns:
-            x: 生成的观测序列 [B, T+H, A, O]
-            (可选) diffusion: 完整的扩散过程 [B, n_steps+1, T+H, A, O]
+            x: 生成的观测序列 [B, T+H, N, O]
+            (可选) diffusion: 完整的扩散过程 [B, n_steps+1, T+H, N, O]
         """
         batch_size = cond["x"].shape[0]
         horizon = horizon or self.horizon + self.history_horizon
@@ -419,16 +455,19 @@ class GaussianDiffusion(nn.Module):
         device = list(cond.values())[0].device
         
         # 选择调度器
+        if self.use_ddim_sample:
+            scheduler = self.ddim_noise_scheduler
+        else:
+            scheduler = self.noise_scheduler
+
         if self.use_consistency_models_sample:
             scheduler = self.consistency_models_scheduler
-        elif self.use_ddim_sample:
-            scheduler = self.ddim_noise_scheduler
         else:
             scheduler = self.noise_scheduler
             
         # 从各向同性高斯噪声初始化 x_T
         # 使用 0.5 缩放使初始噪声的方差接近数据分布方差
-        x = 0.5 * torch.randn(shape, device=device)  # [B, T+H, A, O]
+        x = 0.5 * torch.randn(shape, device=device)  # [B, T+H, N, O]
 
         if return_diffusion:
             diffusion = [x]  # 记录扩散过程的所有中间结果
@@ -443,16 +482,18 @@ class GaussianDiffusion(nn.Module):
             x = self.data_encoder(x)
 
             # 当前时间步t，构造batch维度的时间张量
-            ts = torch.full((batch_size,), t, device=device, dtype=torch.long)
+            ts = torch.full((batch_size,), t, device=device, dtype=torch.long) # [B]
             # 模型预测噪声
             model_output = self.get_model_output(
                 x, ts, returns, env_ts, attention_masks
             )
+            print("model_output: ", model_output.shape)
             
             # scheduler.step: 根据预测的噪声和当前x_t，计算x_{t-1}
             x = scheduler.step(model_output, t, x).prev_sample
 
-            progress.update({"t": t})
+            if verbose:
+                progress.update({"t": t})
             if return_diffusion:
                 diffusion.append(x)
 
@@ -462,36 +503,34 @@ class GaussianDiffusion(nn.Module):
 
         progress.close()
         if return_diffusion:
-            return x, torch.stack(diffusion, dim=1)  # [B, n_steps+1, T+H, A, O]
+            return x, torch.stack(diffusion, dim=1)  # [B, n_steps+1, T+H, N, O]
         else:
-            return x  # [B, T+H, A, O]
+            return x  # [B, T+H, N, O]
 
     def p_losses(
         self,
-        x_start: torch.Tensor,                      # [B, T+H, A, O] 原始无噪声观测序列
+        x_start: torch.Tensor,                      # [B, T+H, N, O] 原始无噪声观测序列
         cond: Dict[str, torch.Tensor],              # 条件字典
         t: torch.Tensor,                            # [B] 随机采样的时间步
-        loss_masks: torch.Tensor,                   # [B, T+H, A, 1] loss掩码（padding位置=0）
+        loss_masks: torch.Tensor,                   # [B, T+H, N, 1] loss掩码（padding位置=0）
         attention_masks: Optional[torch.Tensor] = None,  # attention掩码
         returns: Optional[torch.Tensor] = None,     # 条件returns
         env_ts: Optional[torch.Tensor] = None,      # 环境时间步
-        states: Optional[torch.Tensor] = None,      # 全局状态（用于QMix）
+        states: Optional[torch.Tensor] = None,      # 全局状态(用于QMix)
     ):
         """
         计算扩散模型的损失(per-step loss)
-        
         流程：
         1. 生成高斯噪声 noise,加到 x_start 上得到 x_noisy
         2. 通过模型预测噪声 epsilon_theta(x_noisy, t)
         3. 计算 ||epsilon - epsilon_theta||^2 的加权MSE
-        
         扩展功能：
         - use_learnable_agent_weights: 可学习的智能体权重
         - use_qmix_combiner: QMix单调混合多智能体输出
         - opponent_loss_weight: 对手观测部分loss降权
         - returns_loss_guided: 额外的returns引导loss
         """
-        noise = torch.randn_like(x_start)  # [B, T+H, A, O] 采样高斯噪声
+        noise = torch.randn_like(x_start)  # [B, T+H, N, O] 采样高斯噪声
 
         # 前向扩散：x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * noise
         x_noisy = self.noise_scheduler.add_noise(x_start, noise, t)
@@ -499,14 +538,26 @@ class GaussianDiffusion(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
+        per_epsilons = []
+        for i, per_model in enumerate(self.agent_models): # 遍历每个智能体的模型 适用models: TemporalUnet
+            per_epsilon = per_model(
+                x_noisy[:, :, i, : ],
+                t,
+                returns = returns[:, : , i],
+                env_timestep = env_ts,
+                attention_masks = attention_masks,
+            )
+            per_epsilons.append(per_epsilon)
+        epsilon = torch.stack(per_epsilons, dim = 2)
+
         # 模型预测噪声(或原始数据)
-        epsilon = self.model(
-            x_noisy,
-            t,
-            returns=returns,
-            env_timestep=env_ts,
-            attention_masks=attention_masks,
-        )
+        # epsilon = self.model(
+        #     x_noisy,
+        #     t,
+        #     returns=returns,
+        #     env_timestep=env_ts,
+        #     attention_masks=attention_masks,
+        # )
 
         # 可学习智能体权重：加权聚合各智能体的输出
         if self.use_learnable_agent_weights:
@@ -569,21 +620,18 @@ class GaussianDiffusion(nn.Module):
     def r_losses(self, x_t: torch.Tensor, t: torch.Tensor, noise: torch.Tensor, cond: Dict):
         """
         Returns引导的损失函数(Return Loss Guidance)
-        
         思路:使用一个预训练的价值扩散模型(value_diffusion_model)来估计
         当前去噪轨迹的价值，然后通过梯度下降最大化该价值。
-        
         具体步骤:
         1. 从当前噪声估计 x_0(预测的原始数据)
         2. 用 q_posterior 计算 x_{t-1} 的分布参数
         3. 从该分布采样 x_{t-1}
         4. 用价值扩散模型评估 x_{t-1} 的价值
         5. 返回负价值作为loss(即最大化价值)
-        
         Args:
-            x_t: [B, T+H, A, O] 当前时间步的带噪观测
+            x_t: [B, T+H, N, O] 当前时间步的带噪观测
             t: [B] 当前时间步
-            noise: [B, T+H, A, O] 模型预测的噪声
+            noise: [B, T+H, N, O] 模型预测的噪声
             cond: 条件字典
             
         Returns:
@@ -621,13 +669,13 @@ class GaussianDiffusion(nn.Module):
         value_pred = self.value_diffusion_model(x_t_minus_1, t)
 
         # 返回负价值(最大化价值 = 最小化负价值)
-        return -1.0 * value_pred.mean()  
+        return -1.0 * value_pred.mean()
 
     def compute_inv_loss( # 计算逆动力学损失
         self,
-        x: torch.Tensor,                                 # [B, T+H, A, O+U] 完整transition(obs+action)
-        loss_masks: torch.Tensor,                         # [B, T+H, A, 1] loss掩码
-        legal_actions: Optional[torch.Tensor] = None,     # [B, T+H, A, num_actions] 合法动作掩码(离散动作)
+        x: torch.Tensor,                                 # [B, T+H, N, O+A] 完整transition(obs+action)
+        loss_masks: torch.Tensor,                         
+        legal_actions: Optional[torch.Tensor] = None,     # [B, T+H, N, num_actions] 合法动作掩码(离散动作)
         use_data_agent_weights: bool = False,             # 是否使用数据级智能体权重
     ):
         """
@@ -663,10 +711,10 @@ class GaussianDiffusion(nn.Module):
         
         # 从完整transition中提取观测和动作：x = [a_t || o_t] 的拼接
         # x的结构假设：前半部分是action_dim维动作，后半部分是observation_dim维观测
-        x_t = x[:, :-1, :, self.action_dim :]             # o_t: [B, T+H-1, A, O]  [:-1]裁掉最后一步
-        a_t = x[:, :-1, :, : self.action_dim]             # a_t: [B, T+H-1, A, U]
-        x_t_1 = x[:, 1:, :, self.action_dim :]            # o_{t+1}: [B, T+H-1, A, O]  [1:]裁掉第一步
-        x_comb_t = torch.cat([x_t, x_t_1], dim=-1)        # [o_t, o_{t+1}]: [B, T+H-1, A, 2*O]
+        x_t = x[:, :-1, :, self.action_dim :]             # o_t: [B, T+H-1, N, O]  [:-1]裁掉最后一步
+        a_t = x[:, :-1, :, : self.action_dim]             # a_t: [B, T+H-1, N, A]
+        x_t_1 = x[:, 1:, :, self.action_dim :]            # o_{t+1}: [B, T+H-1, N, O]  [1:]裁掉第一步
+        x_comb_t = torch.cat([x_t, x_t_1], dim=-1)        # [o_t, o_{t+1}]: [B, T+H-1, N, 2*O]
         
         # loss mask 平移一位（因为预测的是 t 时刻的动作，用 t+1 时刻的mask）
         masks_t = loss_masks[:, 1:]
@@ -677,13 +725,13 @@ class GaussianDiffusion(nn.Module):
         
         if use_data_agent_weights:
             # 按数据级智能体权重聚合：将所有智能体的数据求和
-            x_comb_t = x_comb_t.sum(dim=2, keepdim=True)
+            x_comb_t = x_comb_t.sum(dim=2, keepdim=True) # 在智能体维度上求和 [B, T+H-1, 1, 2*O]
             a_t = a_t.sum(dim=2, keepdim=True)
             masks_t = masks_t.sum(dim=2, keepdim=True)
             if legal_actions is not None:
                 legal_actions_t = legal_actions_t.sum(dim=2, keepdim=True)
             
-            x_comb_t = x_comb_t.reshape(-1, x_comb_t.shape[-1])
+            x_comb_t = x_comb_t.reshape(-1, x_comb_t.shape[-1]) # [B*(T+H-1), 2*O] 合并batch和time维度
             a_t = a_t.reshape(-1, a_t.shape[-1])
             masks_t = masks_t.reshape(-1)
             if legal_actions is not None:

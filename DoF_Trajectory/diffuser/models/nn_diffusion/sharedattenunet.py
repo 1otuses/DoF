@@ -17,7 +17,6 @@ from .basic import (
 )
 
 
-
 class SharedConvAttentionDeconv(nn.Module):
     """
     共享卷积-注意力-解卷积网络 —— 共享参数版 + 跨智能体注意力
@@ -383,7 +382,6 @@ class SharedAttentionAutoEncoder(nn.Module):
         return x
 
     
-
 class SharedConvAttentionTemporalValue(nn.Module):
     agent_share_parameters = True
 

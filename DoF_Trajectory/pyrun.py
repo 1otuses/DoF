@@ -29,6 +29,7 @@ if __name__ == "__main__":
     timestamp = now.strftime("%Y_%m_%d_%H_%M_%S")
     variants_log_dir = os.path.join(
         RUN.script_root,
+        "diffuser",
         f"logs/variants/variants-for-{exp_specs['meta_data']['exp_name']}",
         "variants-" + timestamp,
     )
@@ -79,6 +80,3 @@ if __name__ == "__main__":
             if ret_code is None:
                 new_running_processes.append(p)
         running_processes = new_running_processes
-
-    
-    

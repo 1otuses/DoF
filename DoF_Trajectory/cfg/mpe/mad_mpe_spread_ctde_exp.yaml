@@ -30,7 +30,8 @@ constants:
   use_return_to_go: True
 
   # model
-  model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  model: "models.TemporalUnet" # 时间步的Unet
   diffusion: "models.GaussianDiffusion" # 高斯扩散模型
   share_inv: True
   history_horizon: 0 # 观察历史的长度，0表示不观察历史
@@ -60,8 +61,9 @@ constants:
   discount: 0.99
   max_path_length: 25
   termination_penalty: 0.0
+  use_learnable_agent_weights: True # 是否使用可学习的智能体权重来加权不同智能体的预测
 
-  # training
+   # training
   n_steps_per_epoch: 1000
   n_train_steps: 100000
   batch_size: 32

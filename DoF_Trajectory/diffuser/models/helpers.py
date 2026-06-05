@@ -236,15 +236,15 @@ def vp_beta_schedule(timesteps, dtype=torch.float32): # VP调度
 def apply_conditioning(x, conditions, action_dim): # 应用条件
     
     apply_basic_cond = False # 是否应用基本条件
-    for t, val in conditions.items(): # 遍历条件字典，t可以是字符串（特殊条件）或整数/元组（基本条件）
-        if isinstance(t, str):
+    for t, val in conditions.items(): # 遍历条件字典，t可以是字符串（特殊条件）或整数/元组、列表（基本条件）
+        if isinstance(t, str): # 字符串
             if t == "player_idxs": # 玩家索引
                 assert apply_basic_cond
                 if x.shape[-1] < 4:  
                     x = torch.cat([val, x], dim=-1)
                 else:
                     x[:, :, :, 0] = val
-            elif t == "player_hoop_sides": # 玩家环侧
+            elif t == "player_hoop_sides": # 篮筐方向
                 assert apply_basic_cond
                 if x.shape[-1] < 4:  
                     x = torch.cat([x, val], dim=-1)
@@ -253,22 +253,22 @@ def apply_conditioning(x, conditions, action_dim): # 应用条件
             else:
                 continue
 
-        elif isinstance(t, int): # 基本条件 - 整数索引
-            x[:, t, :, action_dim:] = val.clone() # 复制条件值到对应位置
+        elif isinstance(t, int): # 基本条件 - 整数索引 表示某一时间步的条件
+            x[:, t, :, action_dim:] = val.clone() # 复制条件值到对应位置   [B, 1, N, O]
             apply_basic_cond = True
-        elif isinstance(t, tuple) or isinstance(t, list): # 基本条件 - 元组或列表索引
-            assert len(t) == 2, t # 确保元组或列表长度为2
+        elif isinstance(t, tuple) or isinstance(t, list): # 基本条件 - 元组或列表索引 表示一个时间步范围的条件
+            assert len(t) == 2, t # 确保元组或列表长度为2 t[0]是起始时间步，t[1]是结束时间步
             cond_value = val.clone()
             if "agent_idx" in conditions:
-                x[:, t[0] : t[1] - 1, :, action_dim:] = cond_value[:, :-1]
+                x[:, t[0] : t[1] - 1, :, action_dim:] = cond_value[:, :-1] # [B, T_range-1, N, O]
                 index = (
                     conditions["agent_idx"][0] 
                     .long()
                     .repeat(1, 1, x.shape[-1] - action_dim)
                 )
-                x[:, t[1] - 1].scatter_(1, index, cond_value[:, -1].gather(1, index))
+                x[:, t[1] - 1].scatter_(1, index, cond_value[:, -1].gather(1, index)) # [B, 1, N, O] 最后一时间步的条件值根据agent_idx索引进行散布
             else:
-                x[:, t[0] : t[1], :, action_dim:] = cond_value
+                x[:, t[0] : t[1], :, action_dim:] = cond_value  # [B, T_range, N, O]
                 
             apply_basic_cond = True
         else:

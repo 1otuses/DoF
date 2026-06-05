@@ -14,7 +14,7 @@ from .basic import (
 
 class ConcatenatedTemporalUnet(nn.Module):
     """
-    拼接式时间U-Net —— 将所有智能体的观测拼成一个向量,送入单个U-Net处理
+    拼接时序U-Net —— 将所有智能体的观测拼成一个向量,送入单个U-Net处理
     
     核心思想：
     - agent_share_parameters = False: 不共享参数,但通过拼接将所有agent信息融合
@@ -105,7 +105,7 @@ class ConcatenatedTemporalUnet(nn.Module):
 
 class IndependentTemporalUnet(nn.Module):
     """
-    独立时间U-Net —— 每个智能体拥有独立的 TemporalUnet 网络
+    独立时序U-Net —— 每个智能体拥有独立的 TemporalUnet 网络
     
     核心思想：
     - agent_share_parameters = False: 每个agent有自己独立的网络参数

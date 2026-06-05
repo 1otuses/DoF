@@ -34,9 +34,9 @@ def main(Config, RUN):
     Config.use_zero_padding = getattr(Config, "use_zero_padding", True)
     Config.use_inv_dyn = getattr(Config, "use_inv_dyn", True)
     Config.pred_future_padding = getattr(Config, "pred_future_padding", False)
-    Config.use_learnable_agent_weights = getattr(
-        Config, "use_learnable_agent_weights", False
-    )
+    # Config.use_learnable_agent_weights = getattr(
+    #     Config, "use_learnable_agent_weights", False
+    # )
     if not hasattr(Config, "agent_condition_type"):
         if Config.decentralized_execution:
             Config.agent_condition_type = "single"
@@ -48,7 +48,7 @@ def main(Config, RUN):
     # -----------------------------------------------------------------------------#
     dataset_config = utils.Config(
         Config.loader,
-        savepath="dataset_config.pkl", # 保存数据集配置，虽然评估脚本可能不需要，但保持一致性
+        savepath="dataset_config.pkl", # 保存数据集配置
         env_type=Config.env_type,
         env=Config.dataset,
         n_agents=Config.n_agents,
@@ -81,13 +81,13 @@ def main(Config, RUN):
 
     render_config = utils.Config(
         Config.renderer,
-        savepath="render_config.pkl", # 保存渲染器配置，虽然评估脚本可能不需要，但保持一致性
+        savepath="render_config.pkl", # 保存渲染器配置
         env_type=Config.env_type,
         env=Config.dataset,
     )
     data_encoder_config = utils.Config(
         getattr(Config, "data_encoder", "utils.IdentityEncoder"),
-        savepath="data_encoder_config.pkl", # 保存数据编码器配置，虽然评估脚本可能不需要，但保持一致性
+        savepath="data_encoder_config.pkl", # 保存数据编码器配置
     )
 
     dataset = dataset_config()
@@ -102,7 +102,7 @@ def main(Config, RUN):
     model_config = utils.Config(
         Config.model,
         savepath="model_config.pkl", # 保存模型配置
-        n_agents=Config.n_agents,
+        # n_agents=Config.n_agents,
         horizon=Config.horizon + Config.history_horizon,
         history_horizon=Config.history_horizon,
         transition_dim=observation_dim,
@@ -162,12 +162,12 @@ def main(Config, RUN):
         train_lr=Config.learning_rate,
         gradient_accumulate_every=Config.gradient_accumulate_every,
         ema_decay=Config.ema_decay,
-        sample_freq=Config.sample_freq,
-        save_freq=Config.save_freq,
-        log_freq=Config.log_freq,
+        sample_freq=Config.sample_freq, # 采样频率
+        save_freq=Config.save_freq, # 保存频率
+        log_freq=Config.log_freq, # 日志频率
         label_freq=int(Config.n_train_steps // Config.n_saves),
-        eval_freq=Config.eval_freq,
-        save_parallel=Config.save_parallel,
+        eval_freq=Config.eval_freq, # 评估频率
+        save_parallel=Config.save_parallel, # 并行保存
         bucket=logger.root,
         n_reference=Config.n_reference,
         train_device=Config.device,
@@ -176,7 +176,7 @@ def main(Config, RUN):
 
     evaluator_config = utils.Config(
         Config.evaluator,
-        savepath="evaluator_config.pkl", # 保存评估器配置，评估脚本可能需要加载
+        savepath="evaluator_config.pkl", # 保存评估器配置
         verbose=False,
     )
 
@@ -227,7 +227,7 @@ def main(Config, RUN):
 
     # 拦截 logger.log，将训练指标同时写入 TensorBoard
     _original_log = logger.log
-    def _tb_log(step=None, loss=None, **metrics):
+    def _tb_log(step=None, loss=None, **metrics): # 记录训练指标
         if step is not None:
             if loss is not None:
                 tb_writer.add_scalar("loss", loss, step)

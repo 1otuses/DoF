@@ -31,7 +31,8 @@ constants:
 
   # model
   # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
-  model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
+  # model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
+  model: "models.TemporalUnet" # 每个agent独立的TemporalUnet,无注意力
   # 
   #     model的选择说明:
   #       基础设置: 
@@ -44,8 +45,10 @@ constants:
   #     - IndependentTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,无交互
   #     attenunet.py:
   #     - ConvAttentionDeconv: 每个agent独立Unet,不共享权重,有跨agent卷积注意力(TemporalSelfAttention 或 SelfAttention)
+  #     -----MADiff
   #     sharedattenunet.py:
   #     - SharedConvAttentionDeconv: 所有agent共享Unet,有跨agent卷积注意力(TemporalSelfAttention)
+  #     -----MADiff
   #     - SharedAttentionAutoEncoder: 所有agent共享MLP,有跨agent注意力,MLP的单步去噪
   #     shared_temporal_unet.py:
   #     - SharedIndependentTemporalUnet: 所有agent共享TemporalUnet,无注意力,无交互
@@ -99,7 +102,7 @@ constants:
   evaluator: "utils.MADEvaluator"
   num_envs: 10 #10个环境并行评估
   num_eval: 100 #100个环境评估
-  eval_freq: 100000
+  eval_freq: 10000
 
   # load checkpoint
-  continue_training: False
+  continue_training: True

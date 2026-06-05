@@ -108,6 +108,8 @@ Losses = {
 
 
 def apply_conditioning(x, conditions): # 应用条件,对输入进行进行条件化
+    # conditions: dict, masks和x是必须的, player_idxs和player_hoop_sides是可选的
+    # “masks”为形状与x一致的布尔张量,指示哪些位置需要应用条件
     cond_masks = conditions["masks"].to(bool) # 获取条件掩码,用于标识哪些位置需要应用条件
     x[cond_masks] = conditions["x"][cond_masks].clone() # 对需要应用条件的位置,使用条件值进行替换
 

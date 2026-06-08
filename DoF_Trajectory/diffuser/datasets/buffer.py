@@ -22,7 +22,6 @@ class ReplayBuffer:
         self._dict = {
             "path_lengths": np.zeros(max_n_episodes, dtype=int),
         }
-        self.keys = []  # 记录数据集中所有字段的key列表，由_add_keys在首次add_path时填充
         self._count = 0
         self.n_agents = n_agents
         self.max_n_episodes = max_n_episodes
@@ -52,8 +51,7 @@ class ReplayBuffer:
         return sum(self["path_lengths"])
 
     def _add_keys(self, path):
-        """首次调用时记录数据字段的key列表，后续调用跳过"""
-        if len(self.keys) > 0:
+        if hasattr(self, "keys"):
             return
         self.keys = list(path.keys())
 

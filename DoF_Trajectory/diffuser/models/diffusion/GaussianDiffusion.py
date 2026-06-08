@@ -14,7 +14,7 @@ from diffuser.models.helpers import Losses, apply_conditioning  # Losses: 损失
 
 class QMixNet(nn.Module):
     """
-    QMix混合网络 —— 多智能体值分解网络。
+    QMix混合网络 —— 多智能体值分解网络
     将各智能体的独立动作值通过 hypernetwork 生成的权重进行单调混合，
     得到全局联合动作值 Q_tot,使得 argmax 在各智能体间保持单调性(abs(weights)实现单调性约束)
     """
@@ -94,7 +94,7 @@ class GaussianDiffusion(nn.Module):
         data_encoder: utils.Encoder = utils.IdentityEncoder(),  # 数据编码器（默认为恒等映射）
         use_learnable_agent_weights=False,        # 为每个智能体学习可训练权重，用于加权聚合多智能体输出
         use_qmix_combiner=False,                  # 使用 QMix 网络对多智能体输出进行单调混合
-        use_data_agent_weights=False,             # 学习数据级别的智能体权重（用于非平衡数据场景）
+        use_data_agent_weights=False,             # 是否采用数据分解函数上的WConcat类型
         **kwargs,
     ):
         assert action_dim > 0
@@ -127,6 +127,7 @@ class GaussianDiffusion(nn.Module):
         self.use_qmix_combiner = use_qmix_combiner
         self.use_data_agent_weights = use_data_agent_weights
         self.agent_models = nn.ModuleList([model for _ in range(n_agents)])
+        self._model_handles_multi_agent = hasattr(model, 'n_agents')
         if self.use_qmix_combiner:
             self.qmix_net = QMixNet(observation_dim, n_agents, action_dim)
 
@@ -134,6 +135,10 @@ class GaussianDiffusion(nn.Module):
             self.agent_weights = nn.Parameter(torch.ones(n_agents))
 
         if self.use_data_agent_weights:
+            if self.discrete_action:
+                print("\n  WARNING: use_data_agent_weights=True with discrete_action=True "
+                      "causes invalid CrossEntropy targets (summed action indices exceed num_classes)!\n"
+                      "Set use_data_agent_weights=False for discrete-action tasks.\n")
             self.data_agent_weights = nn.Parameter(torch.ones(n_agents))
 
         if self.use_inv_dyn:
@@ -307,18 +312,18 @@ class GaussianDiffusion(nn.Module):
         states: Optional[torch.Tensor] = None,     # 全局状态(可选，用于QMix)
     ):
         # (仅在首次调用时打印一次维度信息，避免干扰进度条)
-        print("get_model_output: \n " \
-        "x.shape={}, \n " \
-        "t.shape={}, \n " \
-        "returns.shape={}, \n " \
-        "env_ts.shape={}, \n " \
-        "attention_masks.shape={}, \n " \
-        "states.shape={}".format(
-            x.shape, t.shape, returns.shape if returns is not None else None,
-            env_ts.shape if env_ts is not None else None,
-            attention_masks.shape if attention_masks is not None else None,
-            states.shape if states is not None else None,
-        ))
+        # print("get_model_output: \n " \
+        # "x.shape={}, \n " \
+        # "t.shape={}, \n " \
+        # "returns.shape={}, \n " \
+        # "env_ts.shape={}, \n " \
+        # "attention_masks.shape={}, \n " \
+        # "states.shape={}".format(
+        #     x.shape, t.shape, returns.shape if returns is not None else None,
+        #     env_ts.shape if env_ts is not None else None,
+        #     attention_masks.shape if attention_masks is not None else None,
+        #     states.shape if states is not None else None,
+        # ))
         """
         获取模型输出(predicted epsilon/x0),支持可选的条件生成
         当 self.returns_condition=True 时，使用 classifier-free guidance (CFG):
@@ -329,59 +334,54 @@ class GaussianDiffusion(nn.Module):
         当 use_learnable_agent_weights=True 时:
         - 对每个智能体的输出进行加权平均(可学习的智能体重要性权重)
         """
-        if self.returns_condition:
-            
-            per_epsilon_con = []
-            for i, per_model in enumerate(self.agent_models):
-                per_epsilon = per_model(
-                    x[:, :, i, :], # 每个智能体独立前向传播，输入是该智能体的观测序列 
-                    t,
-                    returns = returns[:, :, i],
+        if self.returns_condition: # 条件预测CFG
+            if self._model_handles_multi_agent:
+            # 多智能体模型（如 SharedIndependentTemporalUnet）自己管理 agent 维度，直接传完整 4D 数据
+                epsilon_cond = self.model(
+                    x, t,
+                    returns=returns,
                     env_timestep=env_ts,
                     attention_masks=attention_masks,
                     use_dropout=False,
                 )
-                per_epsilon_con.append(per_epsilon)
-            epsilon_cond = torch.stack(per_epsilon_con, dim=2)
+                epsilon_uncond = self.model(
+                    x, t,
+                    returns=returns,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=True,
+                )
+            else:
+            # 非共享: 逐 agent 循环  采用Concat方法
+                per_epsilons_con = []
+                for i, per_model in enumerate(self.agent_models):
+                    per_epsilon = per_model(
+                        x[:, :, i, :],
+                        t,
+                        returns = returns[:, :, i] if returns is not None else None,
+                        env_timestep=env_ts,
+                        attention_masks=attention_masks,
+                        use_dropout=False,
+                    )
+                    per_epsilons_con.append(per_epsilon)
+                epsilon_cond = torch.stack(per_epsilons_con, dim=2)
 
-            # ---- 有条件预测 ----
-            # epsilon_cond = self.model(
-            #     x, t,
-            #     returns=returns,
-            #     env_timestep=env_ts,
-            #     attention_masks=attention_masks,
-            #     use_dropout=False,  # 不使用dropout，保留条件信息
-            # )
-            # 可学习智能体加权（可选）
-            if self.use_learnable_agent_weights:
+                per_epsilons_uncon = []
+                for i, per_model in enumerate(self.agent_models):
+                    per_epsilon_un = per_model(
+                        x[:, :, i, :],
+                        t,
+                        returns = returns[:, :, i] if returns is not None else None,
+                        env_timestep = env_ts,
+                        attention_masks = attention_masks,
+                        use_dropout=True,
+                    )
+                    per_epsilons_uncon.append(per_epsilon_un)
+                epsilon_uncond = torch.stack(per_epsilons_uncon, dim=2)
 
+            if self.use_learnable_agent_weights: # 采用WConcat方法
                 weighted_epsilon_cond = epsilon_cond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_cond = weighted_epsilon_cond / self.agent_weights.sum()
-
-            per_epsilons_uncon = []
-            for i, per_model in enumerate(self.agent_models):
-                per_epsilon_un = per_model(
-                    x[:,:,i,:],
-                    t,
-                    returns = returns[:,:,i],
-                    env_timestep = env_ts,
-                    attention_masks = attention_masks,
-                    use_dropout=True,
-                    )
-                per_epsilons_uncon.append(per_epsilon_un)
-
-            epsilon_uncond = torch.stack(per_epsilons_uncon, dim=2)
-
-
-            # ---- 无条件预测 ----
-            # epsilon_uncond = self.model(
-            #     x, t,
-            #     returns=returns,
-            #     env_timestep=env_ts,
-            #     attention_masks=attention_masks,
-            #     use_dropout=True,  # 使用dropout，丢弃条件信息近似无条件
-            # )
-            if self.use_learnable_agent_weights:
 
                 weighted_epsilon_uncond = epsilon_uncond * self.agent_weights.view(1, 1, -1, 1)
                 epsilon_uncond = weighted_epsilon_uncond / self.agent_weights.sum()
@@ -390,28 +390,30 @@ class GaussianDiffusion(nn.Module):
             epsilon = epsilon_uncond + self.condition_guidance_w * (
                 epsilon_cond - epsilon_uncond
             )
-        else:
-            per_epsilons = []
-            for i, per_model in enumerate(self.agent_models):
-                per_epsilon = per_model(
+
+        else: # 无条件预测
+            if self._model_handles_multi_agent:
+                epsilon = self.model(
+                    x, t,
+                    returns=returns,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                    use_dropout=False,
+                )
+            else:
+                per_epsilons = []
+                for i, per_model in enumerate(self.agent_models):
+                    per_epsilon = per_model(
                     x[:,:,i,:],
                     t,
-                    returns = returns[:,:,i],
+                    returns = returns[:,:,i] if returns is not None else None,
                     env_timestep = env_ts,
                     attention_masks = attention_masks,
                     use_dropout=False,
-                )
-                per_epsilons.append(per_epsilon)
-            epsilons = per_epsilons
-            epsilon =  torch.stack(epsilons, dim=2)
-            # 不使用条件生成，直接模型前向传播
-            # epsilon = self.model(
-            #     x, t,
-            #     returns=returns,
-            #     env_timestep=env_ts,
-            #     attention_masks=attention_masks,
-            #     use_dropout=False,
-            # )
+                    )
+                    per_epsilons.append(per_epsilon)
+                epsilons = per_epsilons
+                epsilon =  torch.stack(epsilons, dim=2)
 
         return epsilon
 
@@ -538,34 +540,39 @@ class GaussianDiffusion(nn.Module):
         x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
         x_noisy = self.data_encoder(x_noisy)
 
-        per_epsilons = []
-        for i, per_model in enumerate(self.agent_models): # 遍历每个智能体的模型 适用models: TemporalUnet
-            per_epsilon = per_model(
-                x_noisy[:, :, i, : ],
-                t,
-                returns = returns[:, : , i],
-                env_timestep = env_ts,
-                attention_masks = attention_masks,
+        # 根据模型是否拥有 n_agents 属性决定调用方式
+        # hasattr(self.model, 'n_agents') 说明模型自己管理 agent 维度 (如 SharedIndependentTemporalUnet)
+        # 否则需要外部逐 agent 切片循环 (如 TemporalUnet)
+        if self._model_handles_multi_agent:
+            # ★ 模型自己管理 agent: 直接传完整 4D [B, T+H, N, O]
+            epsilon = self.model(
+                x_noisy,
+                time=t,
+                returns=returns,
+                env_timestep=env_ts,
+                attention_masks=attention_masks,
             )
-            per_epsilons.append(per_epsilon)
-        epsilon = torch.stack(per_epsilons, dim = 2)
-
-        # 模型预测噪声(或原始数据)
-        # epsilon = self.model(
-        #     x_noisy,
-        #     t,
-        #     returns=returns,
-        #     env_timestep=env_ts,
-        #     attention_masks=attention_masks,
-        # )
+        else:
+            # ★ 外部逐 agent 切片: 传 [B, T+H, F] 给每个独立模型
+            per_epsilons = []
+            for i, per_model in enumerate(self.agent_models):
+                per_epsilon = per_model(
+                    x_noisy[:, :, i, :],
+                    t,
+                    returns=returns[:, :, i] if returns is not None else None,
+                    env_timestep=env_ts,
+                    attention_masks=attention_masks,
+                )
+                per_epsilons.append(per_epsilon)
+            epsilon = torch.stack(per_epsilons, dim=2)  # Concat 噪声分解
 
         # 可学习智能体权重：加权聚合各智能体的输出
-        if self.use_learnable_agent_weights:
-            weighted_x_recon = epsilon * self.agent_weights.view(1, 1, -1, 1)
+        if self.use_learnable_agent_weights:  # 实现WConcat噪声分解函数
+            weighted_x_recon = epsilon * self.agent_weights.view(1, 1, -1, 1) # k_i*x_i
             epsilon = weighted_x_recon / self.agent_weights.sum()
         
         # QMix组合器：将多智能体输出通过QMix网络混合
-        if self.use_qmix_combiner:
+        if self.use_qmix_combiner:  # 实现QMix单调混合多智能体输出
             batch_size, seq_len, n_agents, action_dim = epsilon.shape
             epsilon = epsilon.view(batch_size, seq_len, n_agents * action_dim)
             
@@ -681,28 +688,23 @@ class GaussianDiffusion(nn.Module):
         """
         给定 o_t 和 o_{t+1}，预测 a_t
         学习函数 f: (o_t, o_{t+1}) -> a_t
-        
         数据准备：
         - x_t = o_t (当前观测)
         - a_t = 真实动作
         - x_{t+1} = o_{t+1} (下一时刻观测)
         - x_comb_t = [o_t, o_{t+1}] (拼接后的输入)
-        
         支持三种逆动力学模式：
         - joint_inv: 所有智能体联合输入输出
         - share_inv: 共享网络参数但独立推理
         - independent_inv: 每个智能体独立网络
-        
         支持离散和连续动作：
         - 离散动作: CrossEntropyLoss 交叉熵损失
         - 连续动作: MSELoss 均方误差损失
-        
         Args:
             x: 包含观测和动作的完整transition(obs+action)
             loss_masks: 指定哪些位置参与loss计算
             legal_actions: 离散动作的合法动作掩码(非法动作位置通过-1e10屏蔽)
-            use_data_agent_weights: 是否按数据级智能体权重聚合
-            
+            use_data_agent_weights: 数据分解函数是否采用WConcat
         Returns:
             inv_loss: 逆动力学损失标量
             info: 包含额外信息(如 inv_acc 逆动力学准确率)
@@ -723,22 +725,26 @@ class GaussianDiffusion(nn.Module):
                 -1, *legal_actions.shape[2:]
             )
         
-        if use_data_agent_weights:
-            # 按数据级智能体权重聚合：将所有智能体的数据求和
-            x_comb_t = x_comb_t.sum(dim=2, keepdim=True) # 在智能体维度上求和 [B, T+H-1, 1, 2*O]
-            a_t = a_t.sum(dim=2, keepdim=True)
+        if use_data_agent_weights:  # 数据分解上的WConcat
+            # BUGFIX: 使用 self.data_agent_weights 的加权求和,而非简单求和
+            # 注意:离散动作场景(w/ CrossEntropy)不应使用WConcat,
+            # 因为对离散动作索引求和会产生伪造的"混合动作",使loss无意义
+            weights = self.data_agent_weights.view(1, 1, -1, 1)  # [1, 1, N, 1]
+            norm = weights.sum()  # 归一化因子
+            x_comb_t = (x_comb_t * weights).sum(dim=2, keepdim=True) / norm
+            a_t = (a_t * weights).sum(dim=2, keepdim=True) / norm
             masks_t = masks_t.sum(dim=2, keepdim=True)
             if legal_actions is not None:
                 legal_actions_t = legal_actions_t.sum(dim=2, keepdim=True)
-            
-            x_comb_t = x_comb_t.reshape(-1, x_comb_t.shape[-1]) # [B*(T+H-1), 2*O] 合并batch和time维度
+
+            x_comb_t = x_comb_t.reshape(-1, x_comb_t.shape[-1])
             a_t = a_t.reshape(-1, a_t.shape[-1])
             masks_t = masks_t.reshape(-1)
             if legal_actions is not None:
-                legal_actions_t = legal_actions[:, :-1].sum(dim=2, keepdim=True)   
+                legal_actions_t = legal_actions[:, :-1].sum(dim=2, keepdim=True)
         else:
             # 按智能体维度独立处理
-            # [B*(T+H-1), A, 2*O] -> 合并batch和time维度
+            # [B*(T+H-1), N, 2*O] -> 合并batch和time维度
             x_comb_t = x_comb_t.reshape(-1, x_comb_t.shape[2], 2 * self.observation_dim)
             a_t = a_t.reshape(-1, a_t.shape[2], self.action_dim)
             masks_t = masks_t.reshape(-1, masks_t.shape[2])

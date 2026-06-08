@@ -9,6 +9,8 @@ variables:
 
   horizon: [4]
   history_horizon: [20]
+  # 注意: horizon=4 + history_horizon=20 是之前验证过能跑到60%胜率的配置
+  # horizon=20, history_horizon=8 会导致0胜率(生成20步质量不够好)
   returns_scale: [20] # 回报的缩放因子,控制回报范围,训练更稳定
   dataset: ["3m-Good"]
   condition_guidance_w: [1.2]
@@ -19,20 +21,22 @@ constants:
   env_type: "smac"
   n_agents: 3
   use_action: True
-  discrete_action: True
-  residual_attn: True
+  discrete_action: True # 是否使用离散动作空间
+  residual_attn: True 
   decentralized_execution: True
   use_zero_padding: False
   pred_future_padding: True
-  use_ddim_sample: False
+  use_ddim_sample: True # 是否使用DDIM采样,否则使用传统的DDPM采样
   n_ddim_steps: 15
-  use_consistency_models_sample: False
+  use_consistency_models_sample: False # 是否使用一致性模型进行采样
   n_consistency_models_steps: 5
 
   # model
-  # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
+  # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet (之前验证能跑出60%胜率)
   # model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
   model: "models.TemporalUnet" # 每个agent独立的TemporalUnet,无注意力
+  # model: "models.ConvAttentionDeconv" # 每个agent独立的Unet,有跨agent卷积注意力
+  # model: "models.ConcatenatedTemporalUnet"
   # 
   #     model的选择说明:
   #       基础设置: 
@@ -40,18 +44,22 @@ constants:
   #       - 跨agent交互: 无注意力、SelfAttention、TemporalSelfAttention
   #       - 基础架构: Unet、Conv-Attention-Deconv、MLP(适用于horizon=1)
   #     model:
+  #     TemporalUnet: 每个agent独立的TemporalUnet,无注意力======>concat_f,无h
   #     temporal_unet.py:
-  #     - ConcatenatedTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,通过concat隐式交互
+  #     - ConcatenatedTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,通过concat隐式交互 
+  #     =========理解为DoF的concat数据分解函数实现(concat_f, concat_h) [B, T, N, O] -> [B, T, N*O]
   #     - IndependentTemporalUnet: 每个agent独立Unet,不共享权重,无注意力,无交互
+  #     =========理解为DoF不采用数据分解函数,直接对每个agent的观测序列独立建模
   #     attenunet.py:
   #     - ConvAttentionDeconv: 每个agent独立Unet,不共享权重,有跨agent卷积注意力(TemporalSelfAttention 或 SelfAttention)
-  #     -----MADiff
+  #     =========理解为DoF的attention数据分解函数实现,通过注意力机制实现跨agent交互 
   #     sharedattenunet.py:
   #     - SharedConvAttentionDeconv: 所有agent共享Unet,有跨agent卷积注意力(TemporalSelfAttention)
-  #     -----MADiff
+  #     -----MADiff(concat_f,attention_h)
   #     - SharedAttentionAutoEncoder: 所有agent共享MLP,有跨agent注意力,MLP的单步去噪
   #     shared_temporal_unet.py:
   #     - SharedIndependentTemporalUnet: 所有agent共享TemporalUnet,无注意力,无交互
+  #     =========[B, T, N, O] -> [B*N, T, O]
   # 
   diffusion: "models.GaussianDiffusion"
   share_inv: True
@@ -61,8 +69,8 @@ constants:
   loss_discount: 1
   use_return_to_go: True
   dim_mults: [1, 4, 8]
-  returns_condition: True
-  predict_epsilon: True
+  returns_condition: True # 是否使用条件预测(CFG),否则为无条件预测
+  predict_epsilon: True # 预测噪声(True)或直接预测动作(False)
   calc_energy: False
   dim: 128
   hidden_dim: 256
@@ -82,7 +90,17 @@ constants:
   discount: 0.99
   max_path_length: 60
   termination_penalty: 0.0
-  use_learnable_agent_weights: True
+  # ========= Debug设置 =========
+  # WConcat噪声分解函数: 对离散动作任务会反向传播错误梯度
+  # use_learnable_agent_weights = True 在之前工作配置中验证过可以跑
+  use_learnable_agent_weights: True # WConcat噪声分解功能(之前验证可行)
+  use_data_agent_weights: False # WConcat数据分解:离散动作必须False
+  # =============================
+
+  # [可选] 不使用逆动力学,让扩散模型直接预测actions+observations
+  # 注:离散动作时需同时设置action_weight强调动作预测
+  # use_inv_dyn: False
+  # action_weight: 10
   # training
   n_steps_per_epoch: 1000
   n_train_steps: 100000
@@ -105,4 +123,4 @@ constants:
   eval_freq: 10000
 
   # load checkpoint
-  continue_training: True
+  continue_training: False

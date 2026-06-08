@@ -15,13 +15,11 @@ from .basic import (
 class ConcatenatedTemporalUnet(nn.Module):
     """
     拼接时序U-Net —— 将所有智能体的观测拼成一个向量,送入单个U-Net处理
-    
     核心思想：
     - agent_share_parameters = False: 不共享参数,但通过拼接将所有agent信息融合
     - 每个agent的观测在 feature 维度拼接: [B, T, A, F] -> [B, T, A*F]
     - 拼接后由单个 TemporalUnet 处理,天然捕捉agent间的交互
     - returns条件: 对所有agent的returns取平均作为全局条件
-    
     适用场景:智能体数量少且固定,需要agent间信息交互的任务
     """
     agent_share_parameters = False
@@ -99,14 +97,13 @@ class ConcatenatedTemporalUnet(nn.Module):
         )
         # 拆回多agent: [B, T, A*F] -> [B, T, A, F]
         x = einops.rearrange(concat_x, "b h (a f) -> b h a f", a=self.n_agents)
-
+        # 实现Concat数据分解: 数据拼接-->Unet处理-->数据拆分,每个agent对应一个特征块
         return x
 
 
 class IndependentTemporalUnet(nn.Module):
     """
     独立时序U-Net —— 每个智能体拥有独立的 TemporalUnet 网络
-    
     核心思想：
     - agent_share_parameters = False: 每个agent有自己独立的网络参数
     - 每个agent独立进行U-Net编码-解码,agent间没有显式信息交互

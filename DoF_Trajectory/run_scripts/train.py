@@ -102,7 +102,9 @@ def main(Config, RUN):
     model_config = utils.Config(
         Config.model,
         savepath="model_config.pkl", # 保存模型配置
-        # n_agents=Config.n_agents,
+        n_agents=Config.n_agents,
+        # 如果采用models.TemporalUnet, 不接收n_agents
+        # 其他models需要接收n_agents来决定是否共享参数
         horizon=Config.horizon + Config.history_horizon,
         history_horizon=Config.history_horizon,
         transition_dim=observation_dim,
@@ -245,6 +247,13 @@ def main(Config, RUN):
     with tqdm(total=steps_remaining, desc="Training", initial=trainer.step) as pbar:
         for _ in range(steps_remaining):
             trainer.train(n_train_steps=1)
+            pbar.set_postfix(
+                loss=f"{trainer._last_metrics.get('loss', 0):.4f}",
+                credit_loss=f"{trainer._last_metrics.get('credit_loss', 0):.4f}",
+                inv_loss=f"{trainer._last_metrics.get('inv_loss', 0):.4f}",
+                inv_acc=f"{trainer._last_metrics.get('inv_acc', 0):.3f}",
+                q_tot=f"{trainer._last_metrics.get('q_tot_mean', 0):.2f}",
+            )
             pbar.update(1)
 
     trainer.finish_training()

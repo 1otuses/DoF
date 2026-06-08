@@ -302,6 +302,8 @@ class CDFNormalizer(Normalizer):
             与x相同shape的输出
         """
         shape = x.shape
+        print(x.shape, self.dim)
+
         x = x.reshape(-1, shape[-1])  # [N, dim]
         out = np.zeros_like(x)
         for i, cdf in enumerate(self.cdfs[:shape[-1]]):
@@ -348,7 +350,7 @@ class CDFNormalizer1d:
 
             self.xmin, self.xmax = quantiles.min(), quantiles.max()  # 原始数据范围
             self.ymin, self.ymax = cumprob.min(), cumprob.max()      # CDF概率范围
-        self._warned = False  # 每个实例只打印一次 out-of-range 警告
+        # self._warned = False  # 每个实例只打印一次 out-of-range 警告
 
     def __repr__(self):
         return f"[{np.round(self.xmin, 2):.4f}, {np.round(self.xmax, 2):.4f}"
@@ -387,18 +389,19 @@ class CDFNormalizer1d:
         # [-1, 1] -> [0, 1] 恢复为CDF概率值
         x = (x + 1) / 2.0
 
-        # 裁剪到CDF概率范围内（避免外推警告）
-        x = np.clip(x, self.ymin, self.ymax)
-
         # 只在第一次越界时打印警告
-        if not self._warned and ((x < self.ymin - eps).any() or (x > self.ymax + eps).any()):
+        # if not self._warned and ((x < self.ymin - eps).any() or (x > self.ymax + eps).any()):
+        if (x < self.ymin - eps).any() or (x > self.ymax + eps).any():
             print(
                 f"""[ dataset/normalization ] Warning: out of range in unnormalize: """
                 f"""[{x.min()}, {x.max()}] | """
                 f"""x : [{self.xmin}, {self.xmax}] | """
                 f"""y: [{self.ymin}, {self.ymax}]"""
             )
-            self._warned = True
+            # self._warned = True
+
+        # 裁剪到CDF概率范围内(避免外推警告)
+        x = np.clip(x, self.ymin, self.ymax)
 
         # 通过逆插值还原为原始数据值
         y = self.inv(x)

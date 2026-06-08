@@ -370,6 +370,7 @@ class TemporalUnet(nn.Module):
         condition_dropout: float = 0.1,  # 条件 dropout 概率 (classifier-free guidance)
         kernel_size: int = 5,            # 卷积核大小
         max_path_length: int = 100,      # 最大轨迹长度 (用于 Embedding)
+        n_agents: int = 1,
     ):
         super().__init__()
 
@@ -406,6 +407,7 @@ class TemporalUnet(nn.Module):
         self.env_ts_condition = env_ts_condition
         self.condition_dropout = condition_dropout
         self.history_horizon = history_horizon
+        self.n_agents = n_agents
 
         # ------------------------------------------------------------------
         # 3) Returns-to-Go 条件嵌入 (可选)

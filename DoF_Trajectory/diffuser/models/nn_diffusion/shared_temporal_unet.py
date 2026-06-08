@@ -71,15 +71,15 @@ class SharedIndependentTemporalUnet(nn.Module):
     ):
         """
         Args:
-            x: [B, T, A, F] 多智能体输入
+            x: [B, T, N, O] 多智能体输入
             time: [B] 扩散时间步
-            returns: [B, 1, A] 条件returns
+            returns: [B, 1, N] 条件returns
         Returns:
-            x: [B, T, A, F] 去噪后输出
+            x: [B, T, N, F] 去噪后输出
         """
         assert x.shape[2] == self.n_agents, f"{x.shape}, {self.n_agents}"
 
-        # [B, T, A, F] -> [B, A, T, F] 将agent提到batch旁
+        # [B, T, N, O] -> [B, N, T, O] 将agent提到batch旁
         x = einops.rearrange(x, "b t a f -> b a t f")
         bs = x.shape[0]
 

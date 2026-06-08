@@ -21,17 +21,18 @@ constants:
   use_action: True
   discrete_action: False
   residual_attn: True
-  decentralized_execution: True
+  decentralized_execution: True  # 去中心化执行,每个智能体只能访问自己的观测
   use_zero_padding: False
   pred_future_padding: True
-  use_ddim_sample: False
+  use_ddim_sample: True
   n_ddim_steps: 15
-
-  use_return_to_go: True
+  use_consistency_models_sample: False # 是否使用一致性模型进行采样
+  n_consistency_models_steps: 5
 
   # model
   # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
-  model: "models.TemporalUnet" # 时间步的Unet
+  model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
+  # model: "models.TemporalUnet" # 时间步的Unet
   diffusion: "models.GaussianDiffusion" # 高斯扩散模型
   share_inv: True
   history_horizon: 0 # 观察历史的长度，0表示不观察历史
@@ -51,6 +52,9 @@ constants:
   clip_denoised: True
   test_ret: 0.9
   renderer: "utils.MPERenderer" # 环境渲染器，提供MPE特定的可视化功能
+  use_return_to_go: True # 是否使用回报条件化，通常与returns_condition一起使用
+
+   # dataset
 
   # dataset
   loader: "datasets.SequenceDataset" # 序列数据集加载器,用于加载MPE数据集
@@ -62,9 +66,10 @@ constants:
   max_path_length: 25
   termination_penalty: 0.0
   use_learnable_agent_weights: True # 是否使用可学习的智能体权重来加权不同智能体的预测
+  use_data_agent_weights: True # WConcat数据分解函数功能(否则为Concat)
 
    # training
-  n_steps_per_epoch: 1000
+  n_steps_per_epoch: 10000
   n_train_steps: 100000
   batch_size: 32
   learning_rate: 0.0002
@@ -80,8 +85,8 @@ constants:
 
   # eval
   evaluator: "utils.MADEvaluator"
-  num_eval: 10
-  eval_freq: 100000
+  num_eval: 100
+  eval_freq: 50000
 
   # load checkpoint
-  continue_training: True
+  continue_training: False

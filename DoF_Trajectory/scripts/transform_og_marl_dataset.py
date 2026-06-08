@@ -27,7 +27,7 @@ def main(
     env_name: str,
     map_name: str,
     quality: str,
-    compression: str,
+    compression: str, # 压缩类型
     max_episode_length_override: int = None,
 ):
     # 将tfrecord数据转换为numpy格式数据

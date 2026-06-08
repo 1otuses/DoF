@@ -116,6 +116,7 @@ class Trainer(object):
 
         self.evaluator = None
         self.device = train_device
+        self._last_metrics = {}
 
     def set_evaluator(self, evaluator):
         self.evaluator = evaluator
@@ -149,6 +150,10 @@ class Trainer(object):
 
             self.optimizer.step()
             self.optimizer.zero_grad()
+
+            # 保存最近一次的 loss/infos，用于 tqdm 进度条显示
+            self._last_metrics = {k: v.detach().item() for k, v in infos.items()}
+            self._last_metrics["loss"] = loss.detach().item()
 
             if self.step % self.update_ema_every == 0:
                 self.step_ema()

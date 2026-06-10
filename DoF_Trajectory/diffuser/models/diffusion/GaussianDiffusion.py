@@ -9,8 +9,8 @@ from diffusers.schedulers.scheduling_consistency_models import CMStochasticItera
 
 
 import diffuser.utils as utils
-from diffuser.models.helpers import Losses, apply_conditioning  # Losses: 损失函数集合（'l2', 'state_l2'等）;  apply_conditioning: 将条件约束（已知观测）替换到张量中
-
+# from diffuser.models.helpers import Losses, apply_conditioning  # Losses: 损失函数集合（'l2', 'state_l2'等）;  apply_conditioning: 将条件约束（已知观测）替换到张量中
+from diffuser.models.nn_diffusion.basic import Losses, apply_conditioning
 
 class QMixNet(nn.Module):
     """
@@ -126,7 +126,7 @@ class GaussianDiffusion(nn.Module):
         self.use_learnable_agent_weights = use_learnable_agent_weights
         self.use_qmix_combiner = use_qmix_combiner
         self.use_data_agent_weights = use_data_agent_weights
-        self.agent_models = nn.ModuleList([model for _ in range(n_agents)])
+        self.agent_models = nn.ModuleList([model for _ in range(n_agents)]) # 多智能体模型列表
         self._model_handles_multi_agent = hasattr(model, 'n_agents')
         if self.use_qmix_combiner:
             self.qmix_net = QMixNet(observation_dim, n_agents, action_dim)
@@ -453,16 +453,14 @@ class GaussianDiffusion(nn.Module):
         horizon = horizon or self.horizon + self.history_horizon
         
         shape = (batch_size, horizon, self.n_agents, self.observation_dim)
+        # [B, T+H, N, O] 生成的轨迹形状，T+H由horizon参数控制，支持动态调整生成长度
 
         device = list(cond.values())[0].device
         
         # 选择调度器
         if self.use_ddim_sample:
             scheduler = self.ddim_noise_scheduler
-        else:
-            scheduler = self.noise_scheduler
-
-        if self.use_consistency_models_sample:
+        elif self.use_consistency_models_sample:
             scheduler = self.consistency_models_scheduler
         else:
             scheduler = self.noise_scheduler
@@ -480,7 +478,7 @@ class GaussianDiffusion(nn.Module):
         progress = utils.Progress(len(timesteps)) if verbose else utils.Silent()
         for t in timesteps:
             # 应用条件约束(将已知的conditioning片段替换到 x 中)
-            x = apply_conditioning(x, cond, action_dim=self.action_dim)
+            x = apply_conditioning(x, cond)
             x = self.data_encoder(x)
 
             # 当前时间步t，构造batch维度的时间张量
@@ -494,13 +492,14 @@ class GaussianDiffusion(nn.Module):
             # scheduler.step: 根据预测的噪声和当前x_t，计算x_{t-1}
             x = scheduler.step(model_output, t, x).prev_sample
 
-            if verbose:
-                progress.update({"t": t})
+            # if verbose:
+            #     progress.update({"t": t})
+            progress.update({"t": t})
             if return_diffusion:
                 diffusion.append(x)
 
         # 最终再次应用条件约束
-        x = apply_conditioning(x, cond, action_dim=self.action_dim)
+        x = apply_conditioning(x, cond)
         x = self.data_encoder(x)
 
         progress.close()
@@ -537,7 +536,7 @@ class GaussianDiffusion(nn.Module):
         # 前向扩散：x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * noise
         x_noisy = self.noise_scheduler.add_noise(x_start, noise, t)
         # 对加噪后的结果应用条件约束
-        x_noisy = apply_conditioning(x_noisy, cond, action_dim=self.action_dim)
+        x_noisy = apply_conditioning(x_noisy, cond)
         x_noisy = self.data_encoder(x_noisy)
 
         # 根据模型是否拥有 n_agents 属性决定调用方式
@@ -547,7 +546,7 @@ class GaussianDiffusion(nn.Module):
             # ★ 模型自己管理 agent: 直接传完整 4D [B, T+H, N, O]
             epsilon = self.model(
                 x_noisy,
-                time=t,
+                t,
                 returns=returns,
                 env_timestep=env_ts,
                 attention_masks=attention_masks,
@@ -587,7 +586,7 @@ class GaussianDiffusion(nn.Module):
 
         if not self.predict_epsilon:
             # 如果预测x0而不是epsilon,需要应用条件约束和编码
-            epsilon = apply_conditioning(epsilon, cond, action_dim=self.action_dim)
+            epsilon = apply_conditioning(epsilon, cond)
             epsilon = self.data_encoder(epsilon)
 
         assert noise.shape == epsilon.shape
@@ -669,7 +668,7 @@ class GaussianDiffusion(nn.Module):
         x_t_minus_1 = (
             model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
         )
-        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond, action_dim=self.action_dim)
+        x_t_minus_1 = apply_conditioning(x_t_minus_1, cond)
         x_t_minus_1 = self.data_encoder(x_t_minus_1)
 
         # 用预训练的价值扩散模型评估 x_{t-1} 的价值
@@ -729,10 +728,12 @@ class GaussianDiffusion(nn.Module):
             # BUGFIX: 使用 self.data_agent_weights 的加权求和,而非简单求和
             # 注意:离散动作场景(w/ CrossEntropy)不应使用WConcat,
             # 因为对离散动作索引求和会产生伪造的"混合动作",使loss无意义
-            weights = self.data_agent_weights.view(1, 1, -1, 1)  # [1, 1, N, 1]
-            norm = weights.sum()  # 归一化因子
-            x_comb_t = (x_comb_t * weights).sum(dim=2, keepdim=True) / norm
-            a_t = (a_t * weights).sum(dim=2, keepdim=True) / norm
+            # weights = self.data_agent_weights.view(1, 1, -1, 1)  # [1, 1, N, 1]
+            # norm = weights.sum()  # 归一化因子
+            # x_comb_t = (x_comb_t * weights).sum(dim=2, keepdim=True) / norm
+            # a_t = (a_t * weights).sum(dim=2, keepdim=True) / norm
+            x_comb_t = x_comb_t.sum(dim=2, keepdim=True)
+            a_t = a_t.sum(dim=2, keepdim=True)
             masks_t = masks_t.sum(dim=2, keepdim=True)
             if legal_actions is not None:
                 legal_actions_t = legal_actions_t.sum(dim=2, keepdim=True)

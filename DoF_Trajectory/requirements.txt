@@ -24,7 +24,8 @@ cryptography==43.0.1
 cycler==0.12.1
 Cython==0.29.28
 D4RL @ git+https://github.com/Farama-Foundation/d4rl@e840e80ec4ed51bbb0e557e466198b5d1ae29a15
--e ./third_party/ddpg-agent
+-e git+https://github.com/zbzhu99/madiff.git@bd0c5b7ab834b7b8c1912653ae06f9c7dc989ccf#egg=ddpg_agent&subdirectory=third_party/ddpg-agent
+# -e ./third_party/ddpg-agent
 deepdiff==6.7.1
 diffusers==0.24.0
 dill==0.3.8
@@ -75,8 +76,10 @@ kiwisolver==1.4.5
 labmaze==1.0.6
 libclang==16.0.6
 lxml==5.1.0
--e .
--e ./third_party/multiagent_mujoco
+# -e .
+-e git+https://github.com/zbzhu99/madiff.git@bd0c5b7ab834b7b8c1912653ae06f9c7dc989ccf#egg=madiff
+# -e ./third_party/multiagent_mujoco
+-e git+https://github.com/zbzhu99/madiff.git@bd0c5b7ab834b7b8c1912653ae06f9c7dc989ccf#egg=mamujoco&subdirectory=third_party/multiagent_mujoco
 Markdown==3.5.2
 MarkupSafe==2.1.5
 matplotlib==3.6.3
@@ -87,7 +90,8 @@ more-itertools==10.2.0
 mpyq==0.2.5
 mujoco==2.3.0
 mujoco-py==2.1.2.14
--e ./third_party/multiagent-particle-envs
+# -e ./third_party/multiagent-particle-envs
+-e git+https://github.com/zbzhu99/madiff.git@bd0c5b7ab834b7b8c1912653ae06f9c7dc989ccf#egg=multiagent&subdirectory=third_party/multiagent-particle-envs
 multidict==6.0.5
 mypy-extensions==1.0.0
 networkx==3.1
@@ -97,7 +101,8 @@ nvidia-cublas-cu12==12.4.5.8
 nvidia-cuda-runtime-cu12==12.4.127
 nvidia-cudnn-cu12==9.1.0.70
 oauthlib==3.2.2
--e ./third_party/og-marl
+# -e ./third_party/og-marl
+-e git+https://github.com/zbzhu99/madiff.git@bd0c5b7ab834b7b8c1912653ae06f9c7dc989ccf#egg=OG_MARL&subdirectory=third_party/og-marl
 opencv-python==4.9.0.80
 opt-einsum==3.1.0
 ordered-set==4.1.0

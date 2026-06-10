@@ -9,8 +9,8 @@ variables:
 
   horizon: [4]
   history_horizon: [20]
-  # 注意: horizon=4 + history_horizon=20 是之前验证过能跑到60%胜率的配置
-  # horizon=20, history_horizon=8 会导致0胜率(生成20步质量不够好)
+  # 注意: horizon=4 + history_horizon=20
+  # horizon=20, history_horizon=8
   returns_scale: [20] # 回报的缩放因子,控制回报范围,训练更稳定
   dataset: ["3m-Good"]
   condition_guidance_w: [1.2]
@@ -26,15 +26,15 @@ constants:
   decentralized_execution: True
   use_zero_padding: False
   pred_future_padding: True
-  use_ddim_sample: True # 是否使用DDIM采样,否则使用传统的DDPM采样
+  use_ddim_sample: False # 是否使用DDIM采样,否则使用传统的DDPM采样
   n_ddim_steps: 15
   use_consistency_models_sample: False # 是否使用一致性模型进行采样
   n_consistency_models_steps: 5
 
   # model
-  # model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet (之前验证能跑出60%胜率)
+  model: "models.SharedIndependentTemporalUnet" # 共享独立时间步的Unet
   # model: "models.SharedConvAttentionDeconv" # 共享卷积注意力的Unet
-  model: "models.TemporalUnet" # 每个agent独立的TemporalUnet,无注意力
+  # model: "models.TemporalUnet" # 每个agent独立的TemporalUnet,无注意力
   # model: "models.ConvAttentionDeconv" # 每个agent独立的Unet,有跨agent卷积注意力
   # model: "models.ConcatenatedTemporalUnet"
   # 
@@ -94,7 +94,7 @@ constants:
   # WConcat噪声分解函数: 对离散动作任务会反向传播错误梯度
   # use_learnable_agent_weights = True 在之前工作配置中验证过可以跑
   use_learnable_agent_weights: True # WConcat噪声分解功能(之前验证可行)
-  use_data_agent_weights: False # WConcat数据分解:离散动作必须False
+  use_data_agent_weights: False # WConcat数据分解
   # =============================
 
   # [可选] 不使用逆动力学,让扩散模型直接预测actions+observations
@@ -118,8 +118,8 @@ constants:
 
   # eval 训练中评估设置
   evaluator: "utils.MADEvaluator"
-  num_envs: 10 #10个环境并行评估
-  num_eval: 100 #100个环境评估
+  num_envs: 5 #5个环境并行评估
+  num_eval: 10 #10个环境评估
   eval_freq: 10000
 
   # load checkpoint

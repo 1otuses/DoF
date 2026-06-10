@@ -117,6 +117,8 @@ class Trainer(object):
         self.evaluator = None
         self.device = train_device
         self._last_metrics = {}
+        # 检测模型类型，用于进度条和日志显示
+        self._is_credit_guided = hasattr(diffusion_model, 'use_credit_guide') and diffusion_model.use_credit_guide
 
     def set_evaluator(self, evaluator):
         self.evaluator = evaluator
@@ -152,7 +154,10 @@ class Trainer(object):
             self.optimizer.zero_grad()
 
             # 保存最近一次的 loss/infos，用于 tqdm 进度条显示
-            self._last_metrics = {k: v.detach().item() for k, v in infos.items()}
+            self._last_metrics = {
+                k: v.detach().item() if isinstance(v, torch.Tensor) else v
+                for k, v in infos.items()
+            }
             self._last_metrics["loss"] = loss.detach().item()
 
             if self.step % self.update_ema_every == 0:
@@ -165,13 +170,14 @@ class Trainer(object):
                 self.evaluate()
 
             if self.step % self.log_freq == 0:
+                _fmt = lambda v: (v.item() if isinstance(v, torch.Tensor) else v)
                 infos_str = " | ".join(
-                    [f"{key}: {val:8.4f}" for key, val in infos.items()]
+                    [f"{key}: {_fmt(val):8.4f}" for key, val in infos.items()]
                 )
                 logger.print(
-                    f"{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}"
+                    f"{self.step}: {_fmt(loss):8.4f} | {infos_str} | t: {timer():8.4f}"
                 )
-                metrics = {k: v.detach().item() for k, v in infos.items()}
+                metrics = {k: _fmt(v) for k, v in infos.items()}
                 logger.log(
                     step=self.step, loss=loss.detach().item(), **metrics, flush=True
                 )
@@ -180,9 +186,9 @@ class Trainer(object):
                 self.render_reference(self.n_reference)
 
             if self.sample_freq and self.step % self.sample_freq == 0:
-                if self.model.__class__ == diffuser.models.diffusion.GaussianDiffusion:
+                if isinstance(self.model, diffuser.models.diffusion.GaussianDiffusion):
                     self.inv_render_samples()
-                elif self.model.__class__ == diffuser.models.diffusion.ValueDiffusion:
+                elif isinstance(self.model, diffuser.models.diffusion.ValueDiffusion):
                     pass
                 else:
                     self.render_samples()

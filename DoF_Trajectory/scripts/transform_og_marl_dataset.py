@@ -6,21 +6,21 @@ from pathlib import Path
 from tqdm import tqdm
 import sys
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
+# PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# sys.path.insert(0, str(PROJECT_ROOT / "third_party/og-marl"))
 
 from og_marl.environments import smac, mamujoco
 from og_marl.environments import simple_spread, simple_adversary
 
 
-def detect_compression_type(file_path: str) -> str: # 检测文件压缩类型
-    with open(file_path, "rb") as file_handle:
-        magic = file_handle.read(2)
-    if magic == b"\x1f\x8b":
-        return "GZIP"
-    if magic in (b"\x78\x01", b"\x78\x9c", b"\x78\xda"):
-        return "ZLIB"
-    return ""
+# def detect_compression_type(file_path: str) -> str: # 检测文件压缩类型
+#     with open(file_path, "rb") as file_handle:
+#         magic = file_handle.read(2)
+#     if magic == b"\x1f\x8b":
+#         return "GZIP"
+#     if magic in (b"\x78\x01", b"\x78\x9c", b"\x78\xda"):
+#         return "ZLIB"
+#     return ""
 
 
 def main(
@@ -28,19 +28,19 @@ def main(
     map_name: str,
     quality: str,
     compression: str, # 压缩类型
-    max_episode_length_override: int = None,
+    # max_episode_length_override: int = None,
 ):
     # 将tfrecord数据转换为numpy格式数据
     # 是否添加agent_id到obs
     add_agent_id_to_obs = True
-    dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
+    dataset_dir = Path(f"diffuser/datasets/data/{env_name}/{map_name}/{quality}")
 
     # 处理mpe环境的特殊数据格式
     if env_name == "mpe" :
         if map_name == "simple_adversary":
-            dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
+            dataset_dir = Path(f"diffuser/datasets/data/{env_name}/{map_name}/{quality}")
         elif map_name == "simple_spread":
-            dataset_dir = PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality
+            dataset_dir = Path(f"diffuser/datasets/data/{env_name}/{map_name}/{quality}")
 
     file_path = Path(dataset_dir)
     # 为每个子目录分配一个索引
@@ -89,73 +89,79 @@ def main(
     else:
         raise ValueError(f"Unknown environment {env_name}")
     agents = env.agents # 获取所有智能体
-    if max_episode_length_override is not None:
-        max_episode_length = max_episode_length_override
-    else:
-        max_episode_length = getattr(
-            env, "max_episode_length", getattr(env, "max_timestep", np.inf)
+    # if max_episode_length_override is not None:
+    #     max_episode_length = max_episode_length_override
+    # else:
+    #     max_episode_length = getattr(
+    #         env, "max_episode_length", getattr(env, "max_timestep", np.inf)
+    #     )
+
+    # compression_map = {
+    #     "gzip": "GZIP",
+    #     "zlib": "ZLIB",
+    #     "none": "",
+    # }
+    # compression = compression.lower()
+    # if compression == "auto":
+    #     gzip_files, zlib_files, raw_files = [], [], []
+    #     for file_name in filenames:
+    #         file_compression = detect_compression_type(file_name)
+    #         if file_compression == "GZIP":
+    #             gzip_files.append(file_name)
+    #         elif file_compression == "ZLIB":
+    #             zlib_files.append(file_name)
+    #         else:
+    #             raw_files.append(file_name)
+
+    #     datasets = []
+    #     if gzip_files:
+    #         datasets.append(
+    #             tf.data.Dataset.from_tensor_slices(gzip_files).flat_map(
+    #                 lambda x: tf.data.TFRecordDataset(
+    #                     x, compression_type="GZIP"
+    #                 ).map(env._decode_fn)
+    #             )
+    #         )
+    #     if zlib_files:
+    #         datasets.append(
+    #             tf.data.Dataset.from_tensor_slices(zlib_files).flat_map(
+    #                 lambda x: tf.data.TFRecordDataset(
+    #                     x, compression_type="ZLIB"
+    #                 ).map(env._decode_fn)
+    #             )
+    #         )
+    #     if raw_files:
+    #         datasets.append(
+    #             tf.data.Dataset.from_tensor_slices(raw_files).flat_map(
+    #                 lambda x: tf.data.TFRecordDataset(x, compression_type="").map(
+    #                     env._decode_fn
+    #                 )
+    #             )
+    #         )
+    #     if not datasets:
+    #         raise ValueError(f"No readable tfrecord files found under: {file_path}")
+    #     raw_dataset = datasets[0]
+    #     for extra_dataset in datasets[1:]:
+    #         raw_dataset = raw_dataset.concatenate(extra_dataset)
+    # else:
+    #     if compression not in compression_map:
+    #         raise ValueError(
+    #             "Unsupported compression. Use auto, gzip, zlib, or none."
+    #         )
+    #     filename_dataset = tf.data.Dataset.from_tensor_slices(filenames)
+    #     # 使用flat_map将每个文件的TFRecordDataset展平为一个整体的数据流
+    #     raw_dataset = filename_dataset.flat_map(
+    #         lambda x: tf.data.TFRecordDataset(
+    #             x, compression_type=compression_map[compression]
+    #         ).map(env._decode_fn)
+    #     )
+
+    filename_dataset = tf.data.Dataset.from_tensor_slices(filenames)
+    raw_dataset = filename_dataset.flat_map(
+        lambda x: tf.data.TFRecordDataset(x, compression_type="GZIP").map(
+            env._decode_fn
         )
-
-    compression_map = {
-        "gzip": "GZIP",
-        "zlib": "ZLIB",
-        "none": "",
-    }
-    compression = compression.lower()
-    if compression == "auto":
-        gzip_files, zlib_files, raw_files = [], [], []
-        for file_name in filenames:
-            file_compression = detect_compression_type(file_name)
-            if file_compression == "GZIP":
-                gzip_files.append(file_name)
-            elif file_compression == "ZLIB":
-                zlib_files.append(file_name)
-            else:
-                raw_files.append(file_name)
-
-        datasets = []
-        if gzip_files:
-            datasets.append(
-                tf.data.Dataset.from_tensor_slices(gzip_files).flat_map(
-                    lambda x: tf.data.TFRecordDataset(
-                        x, compression_type="GZIP"
-                    ).map(env._decode_fn)
-                )
-            )
-        if zlib_files:
-            datasets.append(
-                tf.data.Dataset.from_tensor_slices(zlib_files).flat_map(
-                    lambda x: tf.data.TFRecordDataset(
-                        x, compression_type="ZLIB"
-                    ).map(env._decode_fn)
-                )
-            )
-        if raw_files:
-            datasets.append(
-                tf.data.Dataset.from_tensor_slices(raw_files).flat_map(
-                    lambda x: tf.data.TFRecordDataset(x, compression_type="").map(
-                        env._decode_fn
-                    )
-                )
-            )
-        if not datasets:
-            raise ValueError(f"No readable tfrecord files found under: {file_path}")
-        raw_dataset = datasets[0]
-        for extra_dataset in datasets[1:]:
-            raw_dataset = raw_dataset.concatenate(extra_dataset)
-    else:
-        if compression not in compression_map:
-            raise ValueError(
-                "Unsupported compression. Use auto, gzip, zlib, or none."
-            )
-        filename_dataset = tf.data.Dataset.from_tensor_slices(filenames)
-        # 使用flat_map将每个文件的TFRecordDataset展平为一个整体的数据流
-        raw_dataset = filename_dataset.flat_map(
-            lambda x: tf.data.TFRecordDataset(
-                x, compression_type=compression_map[compression]
-            ).map(env._decode_fn)
-        )
-
+    )
     period = 10 # 处理数据的时间步长
 
     # Split the dataset into multiple batches
@@ -185,12 +191,13 @@ def main(
         path_states, path_legals = [], []
     for databatch in tqdm(databatches): # 遍历每个batch的数据
         extras = databatch.extras # 获取额外的信息
-        zero_padding_mask_batch = extras["zero_padding_mask"].numpy()
-        if zero_padding_mask_batch.ndim == 0:
-            zero_padding_mask_batch = zero_padding_mask_batch[None, None]
-        elif zero_padding_mask_batch.ndim == 1:
-            zero_padding_mask_batch = zero_padding_mask_batch[:, None]
-        batch_size = zero_padding_mask_batch.shape[0] # 获取当前batch的大小
+        # zero_padding_mask_batch = extras["zero_padding_mask"].numpy()
+        # if zero_padding_mask_batch.ndim == 0:
+        #     zero_padding_mask_batch = zero_padding_mask_batch[None, None]
+        # elif zero_padding_mask_batch.ndim == 1:
+        #     zero_padding_mask_batch = zero_padding_mask_batch[:, None]
+        # batch_size = zero_padding_mask_batch.shape[0] # 获取当前batch的大小
+        batch_size = len(extras["zero_padding_mask"])
         if env_name == "smac":
             states = extras["s_t"] # SMAC环境的状态信息
 
@@ -207,30 +214,19 @@ def main(
             if "logprobs" in extras: # 如果有动作概率
                 logprobs.append(extras["logprobs"][agent].numpy())
 
-        if observations[0].ndim == 2:
+        # if observations[0].ndim == 2:
             # step-level data: [B, F] -> [B, 1, N, F]
-            observations = np.stack(observations, axis=1)[:, None, :, :]
-            if env_name == "smac":
-                legals = np.stack(legals, axis=1)[:, None, :, :]
-            actions = np.stack(actions, axis=1)[:, None, :, :]
-            rewards = np.stack(rewards, axis=1)[:, None, :]
-            discounts = np.stack(discounts, axis=1)[:, None, :]
-        else:
-            # sequence-level data: [B, T, F] -> [B, T, N, F]
-            observations = np.stack(observations, axis=2)
-            if env_name == "smac":
-                legals = np.stack(legals, axis=2)
-            actions = np.stack(actions, axis=2)
-            rewards = np.stack(rewards, axis=-1)
-            discounts = np.stack(discounts, axis=-1)
+        observations = np.stack(observations, axis=2)
+        if env_name == "smac":
+            legals = np.stack(legals, axis=2) # [B, N, A]
+        actions = np.stack(actions, axis=2) # [B, N, A]
+        rewards = np.stack(rewards, axis=-1) # [B, N] -> [B, 1, N]
+        discounts = np.stack(discounts, axis=-1) # [B, N] -> [B, 1, N]
         if "logprobs" in extras:
-            if logprobs[0].ndim == 2:
-                logprobs = np.stack(logprobs, axis=1)[:, None, :, :]
-            else:
-                logprobs = np.stack(logprobs, axis=2)
+            logprobs = np.stack(logprobs, axis=2)
 
         for idx in range(batch_size):
-            zero_padding_mask = zero_padding_mask_batch[idx][:period]
+            zero_padding_mask = extras["zero_padding_mask"][idx][:period]
             path_length += np.sum(zero_padding_mask, dtype=int)
 
             if env_name == "smac":
@@ -244,8 +240,10 @@ def main(
                 path_logprobs.append(logprobs[idx, :period])
 
             # discount is float (e.g., 0.99); casting to int turns it into 0.
-            is_terminal = np.any(path_discounts[-1][-1] <= 1e-8)
-            if is_terminal or path_length >= max_episode_length:
+            if (
+                int(path_discounts[-1][-1, 0]) == 0
+                or path_length >= env.max_episode_length
+            ):
                 path_observations = np.concatenate(path_observations, axis=0)
                 if add_agent_id_to_obs:
                     T, N = path_observations.shape[:2]
@@ -304,36 +302,36 @@ def main(
     """ Save Numpy Arrays """
     if env_name == "smac":
         np.save(
-            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"states.npy",
+            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/states.npy",
             all_states,
         )
         np.save(
-            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"legals.npy",
+            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/legals.npy",
             all_legals,
         )
     np.save(
-        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"obs.npy",
+        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/obs.npy",
         all_observations,
     )
     np.save(
-        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"actions.npy",
+        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/actions.npy",
         all_actions,
     )
     np.save(
-        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"rewards.npy",
+        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/rewards.npy",
         all_rewards,
     )
     np.save(
-        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"discounts.npy",
+        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/discounts.npy",
         all_discounts,
     )
     if "logprobs" in extras:
         np.save(
-            PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"logprobs.npy",
+            f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/logprobs.npy",
             all_logprobs,
         )
     np.save(
-        PROJECT_ROOT/"diffuser"/"datasets"/"data"/env_name/map_name/quality/"path_lengths.npy",
+        f"diffuser/datasets/data/{env_name}/{map_name}/{quality}/path_lengths.npy",
         all_path_lengths,
     )
 
@@ -343,24 +341,10 @@ if __name__ == "__main__":
     parser.add_argument("--env_name", type=str, default="mpe")
     parser.add_argument("--map_name", type=str, default="simple_spread")
     parser.add_argument("--quality", type=str, default="expert")
-    parser.add_argument(
-        "--compression",
-        type=str,
-        default="auto",
-        choices=["auto", "gzip", "zlib", "none"],
-    )
-    parser.add_argument(
-        "--max_episode_length",
-        type=int,
-        default=None,
-        help="Optional fixed episode length for step-level datasets.",
-    )
     args = parser.parse_args()
 
     main(
         args.env_name,
         args.map_name,
         args.quality,
-        args.compression,
-        max_episode_length_override=args.max_episode_length,
     )

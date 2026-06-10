@@ -8,12 +8,12 @@ variables:
     # "/home/lotus/data/vs_code_project/DoF/DoF_Trajectory/diffuser/logs/mad_mpe/simple_spread-expert/iclr_24-models.SharedIndependentTemporalUnet-r_700-guidew_1.2-ctde_True_linear/100"
     # "/home/lotus/data/vs_code_project/DoF/DoF_Trajectory/diffuser/logs/mad_smac/3m-Good/iclr_h_4-hh_20-models.SharedIndependentTemporalUnet-r_20/100",
     # "/home/lotus/lotus/lhh/DoF/DoF_Trajectory/diffuser/logs/mad_smac/3m-Good/iclr_h_4-hh_20-models.SharedConvAttentionDeconv-r_20/100",
-    "/home/lotus/lotus/lhh/DoF/DoF_Trajectory/diffuser/logs/mad_smac/3m-Good/iclr_h_4-hh_20-models.SharedConvAttentionDeconv-r_20/100",
+    "/home/lotus/lotus/lhh/My_DoF/DoF_Trajectory/diffuser/logs/mad_mpe/simple_spread-expert/iclr_24-models.SharedConvAttentionDeconv-r_700-guidew_1.2-ctde_True_linear_credit/100",
   ]
 
 constants:
-  load_steps: [0, 20000, 40000, 60000, 80000, 100000] # 加载的step
-  num_eval: 6 # 评估的环境数量
+  load_steps: [0, 50000, 100000] # 加载的step
+  num_eval: 3 # 评估的环境数量
   num_envs: 10 # 环境数量
   evaluator: "utils.MADEvaluator"
   overwrite: True

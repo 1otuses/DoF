@@ -114,11 +114,10 @@ class CreditGuidedDiffusion(GaussianDiffusion):
             n_agents=n_agents,
             hidden_dim=credit_hidden_dim,
         )
-        # state_dim: 全局状态维度 = 所有 agent 观测拼接
+        # state_dim: 全局状态 = 所有 agent 观测沿时间池化后拼接
         self.qmixer = QMixer(
             n_agents=n_agents,
-            # 状态 = 所有 agent 的观测拼接 + action 信息
-            state_dim=observation_dim * n_agents + action_dim * n_agents,
+            state_dim=observation_dim * n_agents,
             hidden_dim=credit_hidden_dim,
         )
         self.cql_loss = CQLLoss(alpha=cql_alpha)
@@ -141,7 +140,6 @@ class CreditGuidedDiffusion(GaussianDiffusion):
     def _compute_q_and_c(self, x_start: torch.Tensor, states: torch.Tensor = None):
         """
         从观测序列直接计算 Q_i, Q_tot 和 C_i。
-
         使用独立状态编码器 (StateEncoder), 不依赖扩散模型的隐藏层。
 
         Args:
@@ -156,20 +154,24 @@ class CreditGuidedDiffusion(GaussianDiffusion):
         """
         B, T, N = x_start.shape[:3]
 
-        # 取观测部分
-        obs = x_start[..., self.observation_dim:]  # [B, T, N, O]
+        # 取观测部分: 父类 loss() 已根据 use_inv_dyn 切片,
+        # x_start 可能是 [B,T,N,O] (已切片) 或 [B,T,N,O+A] (未切片)
+        if x_start.shape[-1] >= self.observation_dim + max(self.action_dim, 1):
+            obs = x_start[..., self.action_dim:]  # [B, T, N, O]
+        else:
+            obs = x_start  # 已是最纯观测 [B, T, N, O]
 
         # Step 1: 编码器提取 H
         h = self.state_encoder(obs)  # [B, N, hidden_dim]
 
         # Step 2: 构建全局状态 (用于 QMixer 的 hypernetwork)
         if states is not None:
-            # states: [B, T, state_dim] -> 取最后一步
-            global_state = states[:, -1]  # [B, state_dim]
+            # states: [B, T, state_dim] -> 沿时间池化
+            global_state = states.mean(dim=1)  # [B, state_dim]
         else:
-            # fallback: 所有 agent 的观测 + 动作拼接
-            flat_obs = obs.reshape(B, -1)  # [B, T*N*O]
-            global_state = flat_obs  # 简化版本
+            # fallback: 所有 agent 的观测沿时间池化后拼接
+            obs_pooled = obs.mean(dim=1)  # [B, N, O]
+            global_state = obs_pooled.reshape(B, -1)  # [B, N*O]
 
         # Step 3: 计算 Q
         q_list, q = self.credit_critic(h)  # list of [B, 1], [B, N]
@@ -387,13 +389,13 @@ class CreditGuidedDiffusion(GaussianDiffusion):
         credit_loss = self.cql_loss(q_tot, td_target)
         total_loss = loss + self.credit_lambda * credit_loss
 
-        info["diffuse_loss"] = loss.item() if isinstance(loss, torch.Tensor) else loss
-        info["credit_loss"] = credit_loss.item() if isinstance(credit_loss, torch.Tensor) else credit_loss
-        info["q_tot_mean"] = q_tot.mean().item()
-        info["c_mean"] = c_vec.mean().item()
-        info["cond_mode_uncond"] = (mode == 0).float().mean().item()
-        info["cond_mode_r"] = (mode == 1).float().mean().item()
-        info["cond_mode_joint"] = (mode == 2).float().mean().item()
+        info["diffuse_loss"] = loss.detach()
+        info["credit_loss"] = credit_loss.detach()
+        info["q_tot_mean"] = q_tot.mean().detach()
+        info["c_mean"] = c_vec.mean().detach()
+        info["cond_mode_uncond"] = (mode == 0).float().mean().detach()
+        info["cond_mode_r"] = (mode == 1).float().mean().detach()
+        info["cond_mode_joint"] = (mode == 2).float().mean().detach()
 
         return total_loss, info
 

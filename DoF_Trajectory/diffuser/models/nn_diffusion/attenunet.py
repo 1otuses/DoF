@@ -91,24 +91,40 @@ class ConvAttentionDeconv(nn.Module):
             AttentionModule = TemporalSelfAttention
             self.self_attn = [
                 AttentionModule(
-                    in_out[-1][1], in_out[-1][1] // 16, in_out[-1][1] // 4,
-                    residual=residual_attn, embed_dim=2,
+                    in_out[-1][1],
+                    in_out[-1][1] // 16,
+                    in_out[-1][1] // 4,
+                    residual=residual_attn,
+                    embed_dim=2,
                 )
             ]
             for dims in reversed(in_out):
                 self.self_attn.append(
                     AttentionModule(
-                        dims[1], dims[1] // 16, dims[1] // 4,
-                        residual=residual_attn, embed_dim=2,
+                        dims[1],
+                        dims[1] // 16,
+                        dims[1] // 4,
+                        residual=residual_attn,
+                        embed_dim=2,
                     )
                 )
         else:
             self.self_attn = [
-                SelfAttention(in_out[-1][1], in_out[-1][1] // 16, in_out[-1][1] // 4, residual=residual_attn)
+                SelfAttention(
+                    in_out[-1][1],
+                    in_out[-1][1] // 16,
+                    in_out[-1][1] // 4,
+                    residual=residual_attn,
+                )
             ]
             for dims in reversed(in_out):
                 self.self_attn.append(
-                    SelfAttention(dims[1], dims[1] // 16, dims[1] // 4, residual=residual_attn)
+                    SelfAttention(
+                        dims[1],
+                        dims[1] // 16,
+                        dims[1] // 4,
+                        residual=residual_attn,
+                    )
                 )
         self.self_attn = nn.ModuleList(self.self_attn)
 

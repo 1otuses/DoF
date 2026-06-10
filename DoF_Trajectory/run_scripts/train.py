@@ -227,41 +227,102 @@ def main(Config, RUN):
 
     tb_writer = SummaryWriter(os.path.join(logger.root, logger.prefix, "tensorboard"))
 
+    # 检测是否为 CreditGuidedDiffusion 模型，用于进度条和 TensorBoard 显示
+    is_credit_guided = (
+        hasattr(diffusion, 'use_credit_guide') and
+        diffusion.use_credit_guide and
+        hasattr(diffusion, 'state_encoder')  # 只有真正启用了信用引导的模型才有 state_encoder
+    )
+
     # 拦截 logger.log，将训练指标同时写入 TensorBoard
     _original_log = logger.log
     def _tb_log(step=None, loss=None, **metrics): # 记录训练指标
         if step is not None:
             if loss is not None:
-                tb_writer.add_scalar("loss", loss, step)
+                tb_writer.add_scalar("loss/train", loss, step)
             for key, value in metrics.items():
                 if isinstance(value, (int, float, np.integer, np.floating)):
-                    tb_writer.add_scalar(f"loss/{key}", float(value), step)
+                    # 信用引导模型特有的指标归类到 credit 子目录
+                    credit_keys = ['credit_loss', 'q_tot_mean', 'c_mean',
+                                   'diffuse_loss', 'cond_mode_uncond',
+                                   'cond_mode_r', 'cond_mode_joint']
+                    if is_credit_guided and key in credit_keys:
+                        tb_writer.add_scalar(f"credit/{key}", float(value), step)
+                    else:
+                        tb_writer.add_scalar(f"loss/{key}", float(value), step)
         _original_log(step=step, loss=loss, **metrics)
     logger.log = _tb_log
 
+    # 定义进度条显示的指标
+    base_metrics = ["loss", "inv_loss", "inv_acc"]
+    credit_metrics = ["credit_loss", "q_tot_mean", "c_mean", "diffuse_loss"]
+    # 条件模式统计指标
+    cond_mode_metrics = ["cond_mode_uncond", "cond_mode_r", "cond_mode_joint"]
+
+    if is_credit_guided:
+        display_metrics = base_metrics + credit_metrics + cond_mode_metrics
+    else:
+        display_metrics = base_metrics
+
+    # 构建进度条显示函数
+    def get_postfix_str(metrics_dict):
+        """根据模型类型动态构建进度条后缀字符串"""
+        parts = []
+        for key in display_metrics:
+            value = metrics_dict.get(key, None)
+            if value is None:
+                continue
+            if isinstance(value, (int, float)):
+                if key in ["loss", "credit_loss", "diffuse_loss", "inv_loss", "c_mean"]:
+                    parts.append(f"{key}={value:.4f}")
+                else:
+                    parts.append(f"{key}={value:.3f}")
+        return parts
+
     # -----------------------------------------------------------------------------#
-    # --------------------------------- main loop ---------------------------------#
+    # --------------------------------- main loop ----------------------------------#
     # -----------------------------------------------------------------------------#
 
+    def log_eval_results_to_tb(step):
+        """读取并记录评估结果到 TensorBoard"""
+        results_dir = os.path.join(trainer.bucket, logger.prefix, "results")
+        if not os.path.isdir(results_dir):
+            return
+        # 查找当前 step 对应的评估结果
+        pattern = f"step_{step}-"
+        for fname in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
+            if pattern not in fname:
+                continue
+            try:
+                with open(fname) as f:
+                    data = json.load(f)
+                for k in ("average_ep_reward", "std_ep_reward", "win_rate"):
+                    if k not in data:
+                        continue
+                    val = data[k]
+                    if isinstance(val, (list, tuple, np.ndarray)):
+                        for ai, v in enumerate(val):
+                            tb_writer.add_scalar(f"eval/{k}/agent_{ai}", float(v), step)
+                        tb_writer.add_scalar(f"eval/{k}/mean", float(np.mean(val)), step)
+                    elif isinstance(val, (int, float, np.integer, np.floating)):
+                        tb_writer.add_scalar(f"eval/{k}", float(val), step)
+            except (json.JSONDecodeError, ValueError, OSError):
+                pass
+
     steps_remaining = Config.n_train_steps - trainer.step
+
     with tqdm(total=steps_remaining, desc="Training", initial=trainer.step) as pbar:
         for _ in range(steps_remaining):
             trainer.train(n_train_steps=1)
-            pbar.set_postfix(
-                loss=f"{trainer._last_metrics.get('loss', 0):.4f}",
-                credit_loss=f"{trainer._last_metrics.get('credit_loss', 0):.4f}",
-                inv_loss=f"{trainer._last_metrics.get('inv_loss', 0):.4f}",
-                inv_acc=f"{trainer._last_metrics.get('inv_acc', 0):.3f}",
-                q_tot=f"{trainer._last_metrics.get('q_tot_mean', 0):.2f}",
-            )
+
+            # 动态更新进度条后缀
+            postfix_parts = get_postfix_str(trainer._last_metrics)
+            pbar.set_postfix_str(" | ".join(postfix_parts) if postfix_parts else "")
             pbar.update(1)
 
     trainer.finish_training()
 
-    # -----------------------------------------------------------------------------#
-    # ----------------------------- log eval results to TB ------------------------#
-    # -----------------------------------------------------------------------------#
-
+    # 记录评估结果到 TensorBoard（遍历所有评估结果）
     results_dir = os.path.join(trainer.bucket, logger.prefix, "results")
     if os.path.isdir(results_dir):
         for fname in sorted(glob.glob(os.path.join(results_dir, "*.json"))):

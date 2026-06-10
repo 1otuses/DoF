@@ -77,17 +77,20 @@ class OLT(NamedTuple):
 
 def convert_space_to_spec(space):
     """Converts an OpenAI Gym space to a dm_env spec."""
-    if isinstance(space, spaces.Discrete) or (
-        hasattr(space, "n") and hasattr(space, "dtype")
-    ):
-        return specs.DiscreteArray(num_values=int(space.n), dtype=space.dtype)
+    # if isinstance(space, spaces.Discrete) or (
+    #     hasattr(space, "n") and hasattr(space, "dtype")
+    # ):
+    #     return specs.DiscreteArray(num_values=int(space.n), dtype=space.dtype)
+    if isinstance(space, spaces.Discrete):
+        return specs.DiscreteArray(num_values=space.n, dtype=space.dtype)
 
-    if isinstance(space, spaces.Box) or (
-        hasattr(space, "low")
-        and hasattr(space, "high")
-        and hasattr(space, "shape")
-        and hasattr(space, "dtype")
-    ):
+    # if isinstance(space, spaces.Box) or (
+    #     hasattr(space, "low")
+    #     and hasattr(space, "high")
+    #     and hasattr(space, "shape")
+    #     and hasattr(space, "dtype")
+    # ):
+    elif isinstance(space, spaces.Box):
         return specs.BoundedArray(
             shape=space.shape,
             dtype=space.dtype,

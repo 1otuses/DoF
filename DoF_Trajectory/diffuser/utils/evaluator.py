@@ -46,7 +46,8 @@ class MADEvaluatorWorker(Process):
         attention_masks = np.zeros(
             (obs.shape[0], Config.horizon + Config.history_horizon, Config.n_agents, 1)
         )
-        attention_masks[:, Config.history_horizon :] = 1.0
+        attention_masks[:, Config.history_horizon :] = 1.0 
+        # 将未来时间步的注意力设置为1.0, 表示不使用历史信息进行预测
 
         shape = (
             obs.shape[0],
@@ -55,7 +56,7 @@ class MADEvaluatorWorker(Process):
         ) 
 
         batch_size, horizon, n_agents, obs_dim = shape
-        if Config.decentralized_execution:
+        if Config.decentralized_execution: # 如果是去中心化执行, 则为每个agent生成独立的条件输入和注意力掩码
             joint_cond_trajectories, joint_cond_masks, joint_attention_masks = (
                 [],
                 [],
@@ -69,7 +70,8 @@ class MADEvaluatorWorker(Process):
 
                 agent_mask = np.zeros(Config.n_agents)
                 agent_mask[a_idx] = 1.0
-                local_cond_masks = self.mask_generator(shape, agent_mask)
+                local_cond_masks = self.mask_generator(shape, agent_mask) 
+                # 为每个agent生成独立的条件掩码, 只保留对应agent的历史信息
 
                 local_attention_masks = copy(attention_masks)
                 local_attention_masks[:, : Config.history_horizon, a_idx] = 1.0

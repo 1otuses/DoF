@@ -96,11 +96,11 @@ class SharedIndependentTemporalUnet(nn.Module):
             env_timestep=torch.cat([env_timestep for _ in range(x.shape[1])], dim=0)
             if env_timestep is not None
             else None,
-            attention_masks=torch.cat(
-                [attention_masks for _ in range(x.shape[1])], dim=0
-            )
-            if attention_masks is not None
-            else None,
+            # attention_masks=torch.cat(
+            #     [attention_masks for _ in range(x.shape[1])], dim=0
+            # )
+            # if attention_masks is not None
+            # else None,
             use_dropout=use_dropout,
             force_dropout=force_dropout,
         )
